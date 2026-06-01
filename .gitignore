@@ -1,0 +1,25 @@
+# Bağımlılıklar
+node_modules
+
+# Next.js derleme çıktıları
+.next
+out
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Ortam değişkenleri — GİZLİ. (.env.example commit edilir, gerçek anahtarlar ASLA.)
+.env
+.env*.local
+
+# Vercel
+.vercel
+
+# Gerçek şirket verisi — repoya girmez (yalnızca klasör yapısı + seed/README.md kalır)
+seed/**/*.xlsx
+seed/**/*.xls
+seed/**/*.csv
+*.zip
+
+# Diğer
+*.log
+.DS_Store
