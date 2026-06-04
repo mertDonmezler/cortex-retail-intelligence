@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { fmtInt, fmtMoney, fmtPct, fmtDate } from "@/lib/format";
+import { fmtInt, fmtMoney, fmtPct, fmtDate, RETAILER_COLORS } from "@/lib/format";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
+import { fetchJson } from "@/lib/fetchJson";
 
-const COLORS: Record<string, string> = {
-  Nezih: "#1FF80B", Huppaluppo: "#0bd1f8", Armağan: "#f8b00b", Toyzz: "#f80b8a", DR: "#9b6bff",
-};
+const COLORS = RETAILER_COLORS;
 const STATUS = {
   up: { icon: "▲", color: "#1FF80B" }, down: { icon: "▼", color: "#ff5555" },
   flat: { icon: "■", color: "#7d927d" }, nodata: { icon: "·", color: "#7d927d" },
@@ -22,12 +21,7 @@ export default function OverviewPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(week ? `/api/overview?week=${encodeURIComponent(week)}` : "/api/overview")
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(week ? `/api/overview?week=${encodeURIComponent(week)}` : "/api/overview")
       .then((d) => { setData(d); setWeeks(d?.weeks ?? []); setErr(null); })
       .catch((e) => { setErr(e.message); setData(null); /* render çökmesin diye güvenli boş default */ })
       .finally(() => setLoading(false));
@@ -49,7 +43,7 @@ export default function OverviewPage() {
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Yönetici <span className="neon-text">Özeti</span></h1>
-          <p className="text-txt-dim mono text-sm mt-1">Tüm ağ bir bakışta · hafta {fmtDate(data.latest_week)}</p>
+          <p className="text-txt-dim mono text-sm mt-1">Tüm ağ bir bakışta · hafta {fmtDate(data.latest_week)} · ciro = net kazanç (çalışma marjı + KDV düşülmüş)</p>
         </div>
         <div className="flex items-center gap-2">
           <select

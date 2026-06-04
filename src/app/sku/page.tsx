@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RETAILERS, fmtInt, fmtMoney, fmtDate } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { fetchJson } from "@/lib/fetchJson";
 
 export default function SkuPage() {
   const [retailer, setRetailer] = useState(RETAILERS[0]);
@@ -17,12 +18,7 @@ export default function SkuPage() {
     setLoading(true);
     setErr("");
     const q = week ? `&week=${week}` : "";
-    fetch(`/api/sku-detail?retailer=${encodeURIComponent(retailer)}${q}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/sku-detail?retailer=${encodeURIComponent(retailer)}${q}`)
       .then((d) => {
         setSkus(d?.skus ?? []);
         setWeeks(d?.weeks ?? []);

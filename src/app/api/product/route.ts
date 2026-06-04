@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
-import { pivotProduct, type FactRow } from "@/lib/compute";
+import { pivotProduct } from "@/lib/compute";
+import { toNetFacts, FACT_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -11,20 +12,21 @@ export async function GET(req: NextRequest) {
   const barkod = searchParams.get("barkod");
   try {
     if (barkod) {
-      const rows = await fetchAllRows((from, to) =>
-        supabase
-          .from("fact_weekly")
-          .select("retailer, week_start, store, sku_name, barkod, sales_qty, sales_value, stock_qty")
-          .eq("barkod", barkod).order("id").range(from, to)
+      const SEL = FACT_COLS;
+      let rows = await fetchAllRows((from, to) =>
+        supabase.from("fact_weekly").select(SEL).eq("barkod", barkod).order("id").range(from, to)
       );
-      const facts: FactRow[] = rows.map((r) => ({
-        retailer: r.retailer, week_start: r.week_start, store: r.store ?? null,
-        sku_name: r.sku_name, barkod: r.barkod ?? null,
-        sales_qty: Number(r.sales_qty),
-        sales_value: r.sales_value != null ? Number(r.sales_value) : null,
-        stock_qty: Number(r.stock_qty),
-      }));
-      const pivot = pivotProduct(facts);
+      // Onaylı alias'la bu barkoda bağlı barkodsuz kalemler (ör. Toyzz) de dahil
+      const { data: al } = await supabase.from("product_alias")
+        .select("retailer, sku_name").eq("barkod", barkod).eq("status", "approved");
+      for (const a of al ?? []) {
+        const extra = await fetchAllRows((from, to) =>
+          supabase.from("fact_weekly").select(SEL)
+            .eq("retailer", a.retailer).eq("sku_name", a.sku_name).is("barkod", null).order("id").range(from, to)
+        );
+        rows = rows.concat(extra);
+      }
+      const pivot = pivotProduct(toNetFacts(rows));
       return NextResponse.json({ barkod, ...pivot });
     }
     if (q && q.length >= 2) {

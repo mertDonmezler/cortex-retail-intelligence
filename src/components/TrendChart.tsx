@@ -4,15 +4,9 @@ import { useMemo, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { WeeklySummary, RETAILERS, fmtDate, fmtInt, fmtMoney } from "@/lib/format";
+import { WeeklySummary, RETAILERS, fmtDate, fmtInt, fmtMoney, RETAILER_COLORS } from "@/lib/format";
 
-const COLORS: Record<string, string> = {
-  Nezih: "#1FF80B",
-  Huppaluppo: "#0bd1f8",
-  Armağan: "#f8b00b",
-  Toyzz: "#f80b8a",
-  DR: "#9b6bff",
-};
+const COLORS = RETAILER_COLORS;
 
 export function TrendChart({ summary }: { summary: WeeklySummary[] }) {
   const [metric, setMetric] = useState<"qty" | "value">("value"); // varsayılan TL

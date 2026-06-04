@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { WeeklySummary, fmtInt, fmtMoney, fmtPct } from "@/lib/format";
 import { Sparkline } from "./Sparkline";
+import { CHANNEL_TERMS } from "@/lib/margins";
 
 interface Props {
   retailer: string;
@@ -15,6 +16,7 @@ export function RetailerCard({ retailer, week, summary, wowMetric = "value" }: P
   const [top, setTop] = useState<{ sku_name: string; sales_qty: number }[] | null>(null);
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const terms = CHANNEL_TERMS[retailer];
 
   const rWeeks = summary
     .filter((s) => s.retailer === retailer)
@@ -52,8 +54,9 @@ export function RetailerCard({ retailer, week, summary, wowMetric = "value" }: P
   const avgPct = curM != null && avgM && avgM > 0 ? ((curM - avgM) / avgM) * 100 : null;
 
   // Sparkline: seçilen metriğin son 10 hafta trendi
+  // TL modunda has_value=false (ciro yok) haftaları 0 çizmesin → WoW/ort ile aynı taban.
   const sparkData = rWeeks
-    .filter((s) => s.week_start <= week)
+    .filter((s) => s.week_start <= week && (useVal ? s.has_value : true))
     .slice(-10)
     .map((s) => (useVal ? Number(s.sales_value ?? 0) : Number(s.sales_qty)));
 
@@ -87,12 +90,18 @@ export function RetailerCard({ retailer, week, summary, wowMetric = "value" }: P
         <div className="text-3xl font-bold mono neon-text">
           {curVal != null ? fmtMoney(curVal) : "₺—"}
         </div>
-        <div className="mono text-xs text-txt-dim">ciro (TL)</div>
+        <div className="mono text-xs text-txt-dim">net ciro (TL)</div>
       </div>
 
       <div className="mono text-sm mt-2 text-txt">
         {fmtInt(curQty)} <span className="text-txt-dim text-xs">adet</span>
       </div>
+
+      {terms && (
+        <div className="mono text-[10px] text-txt-dim mt-2 opacity-70">
+          marj %{terms.margin} · {terms.payment === "Satıştan Ödeme" ? "satıştan ödeme" : "faturadan"}{terms.vadeDays != null ? ` · ${terms.vadeDays}g vade` : ""}
+        </div>
+      )}
 
       <div className="mt-3 space-y-1 text-xs mono">
         <div className="flex justify-between">

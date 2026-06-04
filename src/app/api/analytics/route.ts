@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { sellThrough, weeksOfStock } from "@/lib/analytics";
+import { netFactor } from "@/lib/margins";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
       const latestStock = a.stock.get(latest) ?? 0;
       const latestSales = a.sales.get(latest) ?? 0;
       // Son 4 haftanın ort. satış hızı (stockout için)
-      const recent = salesSeries.slice(-4).filter((_, i, arr) => i < arr.length);
+      const recent = salesSeries.slice(-4);
       const avgSales = recent.length ? recent.reduce((x, y) => x + y, 0) / recent.length : 0;
       const wos = weeksOfStock(latestStock, avgSales);
       const st = sellThrough(latestSales, latestStock);
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
         barkod: a.barkod,
         sales_qty: latestSales,
         stock_qty: latestStock,
-        sales_value: a.value || null,
+        sales_value: a.value ? a.value * netFactor(retailer) : null,
         sell_through: st,
         weeks_of_stock: wos,
         spark: salesSeries,

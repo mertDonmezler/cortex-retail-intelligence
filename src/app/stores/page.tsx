@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { RETAILERS, fmtInt, fmtMoney, fmtDate } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { fetchJson } from "@/lib/fetchJson";
 
 // Mağaza-bazlı veri sağlayan perakendeciler (DR eski format, Toyzz mağaza-bazlıysa)
 export default function StoresPage() {
@@ -15,17 +16,30 @@ export default function StoresPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [openStore, setOpenStore] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Record<string, any[]>>({});
+  const [detLoading, setDetLoading] = useState<string | null>(null);
+
+  async function openStoreDetail(store: string) {
+    if (openStore === store) { setOpenStore(null); return; }
+    setOpenStore(store);
+    if (detail[store] || !week) return;
+    setDetLoading(store);
+    try {
+      const r = await fetch(`/api/store-detail?retailer=${encodeURIComponent(retailer)}&week=${encodeURIComponent(week)}&store=${encodeURIComponent(store)}`);
+      const d = await r.json().catch(() => ({}));
+      setDetail((p) => ({ ...p, [store]: d.skus ?? [] }));
+    } catch { setDetail((p) => ({ ...p, [store]: [] })); }
+    finally { setDetLoading(null); }
+  }
 
   useEffect(() => {
     setLoading(true);
     setErr("");
+    setOpenStore(null);
+    setDetail({});
     const q = week ? `&week=${week}` : "";
-    fetch(`/api/stores?retailer=${encodeURIComponent(retailer)}${q}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/stores?retailer=${encodeURIComponent(retailer)}${q}`)
       .then((d) => {
         setStores(d.stores ?? []);
         setWeeks(d.weeks ?? []);
@@ -124,21 +138,57 @@ export default function StoresPage() {
             <table>
               <thead><tr><th>#</th><th>Mağaza</th><th>Satış</th><th>Pay</th><th>TL</th><th>Stok</th><th>SKU</th></tr></thead>
               <tbody>
-                {filtered.map((s, i) => (
-                  <tr key={s?.store ?? i}>
-                    <td className="mono text-txt-dim">{rows.indexOf(s) + 1}</td>
-                    <td className="font-medium">{s?.store ?? "—"}</td>
-                    <td className="mono">{fmtInt(s?.sales_qty ?? 0)}</td>
-                    <td className="w-32">
-                      <div className="h-1.5 rounded-full bg-ink-3 overflow-hidden">
-                        <div className="h-full bg-neon rounded-full" style={{ width: `${((s?.sales_qty ?? 0) / maxQty) * 100}%` }} />
-                      </div>
-                    </td>
-                    <td className="mono">{(s?.sales_value ?? 0) > 0 ? fmtMoney(s.sales_value) : "—"}</td>
-                    <td className="mono">{fmtInt(s?.stock_qty ?? 0)}</td>
-                    <td className="mono text-txt-dim">{s?.sku_count ?? 0}</td>
-                  </tr>
-                ))}
+                {filtered.map((s, i) => {
+                  const store = s?.store ?? "—";
+                  const isOpen = openStore === store;
+                  const skus = detail[store];
+                  return (
+                    <Fragment key={store + i}>
+                      <tr onClick={() => openStoreDetail(store)} className="cursor-pointer hover:bg-neon/5">
+                        <td className="mono text-txt-dim">{i + 1}</td>
+                        <td className="font-medium">{isOpen ? "▼ " : "▶ "}{store}</td>
+                        <td className="mono">{fmtInt(s?.sales_qty ?? 0)}</td>
+                        <td className="w-32">
+                          <div className="h-1.5 rounded-full bg-ink-3 overflow-hidden">
+                            <div className="h-full bg-neon rounded-full" style={{ width: `${((s?.sales_qty ?? 0) / maxQty) * 100}%` }} />
+                          </div>
+                        </td>
+                        <td className="mono">{(s?.sales_value ?? 0) > 0 ? fmtMoney(s.sales_value) : "—"}</td>
+                        <td className="mono">{fmtInt(s?.stock_qty ?? 0)}</td>
+                        <td className="mono text-txt-dim">{s?.sku_count ?? 0}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={7} className="bg-ink-2/40">
+                            {detLoading === store ? (
+                              <div className="mono text-xs text-txt-dim p-3 animate-pulse">Yükleniyor…</div>
+                            ) : !skus || skus.length === 0 ? (
+                              <div className="mono text-xs text-txt-dim p-3">Bu mağaza için satış kaydı yok.</div>
+                            ) : (
+                              <div className="p-3">
+                                <div className="mono text-[10px] text-txt-dim mb-2">{store} — satılan ürünler ({skus.length})</div>
+                                <table>
+                                  <thead><tr><th>Ürün</th><th className="text-right">Satış</th><th className="text-right">Stok</th><th className="text-right">Ciro (net)</th></tr></thead>
+                                  <tbody>
+                                    {skus.slice(0, 50).map((k: any, j: number) => (
+                                      <tr key={j}>
+                                        <td className="max-w-[360px] truncate" title={k.sku_name}>{k.sku_name}</td>
+                                        <td className="mono text-right">{fmtInt(k.sales_qty)}</td>
+                                        <td className="mono text-right text-txt-dim">{fmtInt(k.stock_qty)}</td>
+                                        <td className="mono text-right text-txt-dim">{k.sales_value > 0 ? fmtMoney(k.sales_value) : "—"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {skus.length > 50 && <div className="mono text-[10px] text-txt-dim mt-2">… ilk 50 gösteriliyor</div>}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
             <div className="mono text-xs text-txt-dim mt-3">{filtered.length} / {rows.length} mağaza</div>

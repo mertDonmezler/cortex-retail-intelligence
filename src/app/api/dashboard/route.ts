@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { netRows } from "@/lib/margins";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -13,7 +14,8 @@ export async function GET() {
     ]);
     if (e1) throw new Error(e1.message);
     if (e2) throw new Error(e2.message);
-    return NextResponse.json({ summary: summary ?? [], freshness: fresh ?? [] });
+    // Ciro net kazanca çevrilir (çalışma marjı + KDV); adet/stok ham kalır.
+    return NextResponse.json({ summary: netRows((summary ?? []) as any[]), freshness: fresh ?? [] });
   } catch (e: any) {
     console.error("dashboard hatası:", e);
     return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });

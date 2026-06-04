@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { fetchJson } from "@/lib/fetchJson";
 
 interface Insight {
   severity: "critical" | "warning" | "positive" | "info";
@@ -25,12 +26,7 @@ export default function InsightsPage() {
   const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
-    fetch("/api/insights")
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson("/api/insights")
       .then((d) => setInsights(d?.insights ?? []))
       .catch((e) => {
         setErr(e.message);

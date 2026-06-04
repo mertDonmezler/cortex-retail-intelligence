@@ -1,4 +1,5 @@
 // Client tarafı tipler ve yardımcılar
+import { RETAILERS as CANON_RETAILERS } from "@/lib/normalizers/types";
 export interface WeeklySummary {
   retailer: string;
   week_start: string;
@@ -18,7 +19,14 @@ export interface Freshness {
   last_import: string | null;
 }
 
-export const RETAILERS = ["Nezih", "Huppaluppo", "Armağan", "Toyzz", "DR"];
+// Perakendeci listesi + renk kimliği tek kaynaktan (eskiden 3+7 dosyada kopyaydı).
+export const RETAILERS: string[] = CANON_RETAILERS;
+export const RETAILER_COLORS: Record<string, string> = {
+  Nezih: "#1FF80B", Huppaluppo: "#0bd1f8", Armağan: "#f8b00b", Toyzz: "#f80b8a", DR: "#9b6bff",
+};
+export function colorOf(retailer: string): string {
+  return RETAILER_COLORS[retailer] ?? "#7d927d";
+}
 
 export function fmtInt(n: number): string {
   return Math.round(n).toLocaleString("tr-TR");

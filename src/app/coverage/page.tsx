@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { RETAILERS, fmtInt } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { fetchJson } from "@/lib/fetchJson";
 
 type Status = "kritik" | "fazla" | "saglikli";
 interface Sku {
@@ -42,12 +43,7 @@ export default function CoveragePage() {
   useEffect(() => {
     setLoading(true);
     const url = `/api/coverage?retailer=${encodeURIComponent(retailer)}${store ? `&store=${encodeURIComponent(store)}` : ""}`;
-    fetch(url)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(url)
       .then((d) => { setData(d); setErr(null); })
       .catch((e) => { setErr(e.message); setData(null); })
       .finally(() => setLoading(false));

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
+import { netFactor } from "@/lib/margins";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -42,11 +43,15 @@ export async function GET(req: NextRequest) {
       e.stock += Number(r.stock_qty);
       agg.set(r.sku_name, e);
     }
+    const nf = netFactor(retailer); // ciro net kazanca çevrilir (çalışma marjı + KDV)
     const skus = [...agg.entries()]
-      .map(([sku_name, v]) => ({
-        sku_name, sales_qty: v.qty, sales_value: v.val, stock_qty: v.stock,
-        avg_price: v.qty > 0 ? Math.round((v.val / v.qty) * 100) / 100 : null,
-      }))
+      .map(([sku_name, v]) => {
+        const val = v.val * nf;
+        return {
+          sku_name, sales_qty: v.qty, sales_value: val, stock_qty: v.stock,
+          avg_price: v.qty > 0 ? Math.round((val / v.qty) * 100) / 100 : null,
+        };
+      })
       .sort((a, b) => b.sales_qty - a.sales_qty);
 
     return NextResponse.json({

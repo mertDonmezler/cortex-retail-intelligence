@@ -2,23 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import * as XLSX from "xlsx";
 import {
-  execOverview, globalRankings, categoryBreakdown, type SummaryRow, type FactRow,
+  execOverview, globalRankings, categoryBreakdown, type FactRow,
 } from "@/lib/compute";
 import { RETAILERS } from "@/lib/normalizers/types";
+import { getApprovedAliases } from "@/lib/aliases";
+import { toNetFacts, toNetSummary, FACT_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function toFacts(rows: any[]): FactRow[] {
-  return (rows ?? []).map((r) => ({
-    retailer: r.retailer, week_start: r.week_start, store: r.store ?? null,
-    sku_name: r.sku_name, barkod: r.barkod ?? null,
-    sales_qty: Number(r.sales_qty),
-    sales_value: r.sales_value != null ? Number(r.sales_value) : null,
-    stock_qty: Number(r.stock_qty),
-  }));
-}
 
 // Çok-sayfalı Excel raporu üretir: Özet, Haftalık, Sıralamalar, Kategoriler.
 export async function GET(req: NextRequest) {
@@ -26,13 +18,8 @@ export async function GET(req: NextRequest) {
   try {
     const { data: summaryRaw } = await supabase
       .from("weekly_summary").select("*").order("week_start", { ascending: true });
-    const summary: SummaryRow[] = (summaryRaw ?? []).map((s) => ({
-      retailer: s.retailer, week_start: s.week_start,
-      sales_qty: Number(s.sales_qty),
-      sales_value: s.sales_value != null ? Number(s.sales_value) : null,
-      has_value: !!s.has_value, stock_qty: Number(s.stock_qty),
-      sku_count: Number(s.sku_count ?? 0), store_count: Number(s.store_count ?? 0),
-    }));
+    // Ciro net kazanca çevrilir (çalışma marjı + KDV); adet/stok ham kalır.
+    const summary = toNetSummary(summaryRaw ?? []);
 
     const exec = execOverview(summary, week);
     const wb = XLSX.utils.book_new();
@@ -77,16 +64,17 @@ export async function GET(req: NextRequest) {
     if (focus) for (const retailer of RETAILERS) {
       const lr = await fetchAllRows((from, to) =>
         supabase.from("fact_weekly")
-          .select("retailer, week_start, store, sku_name, barkod, sales_qty, sales_value, stock_qty")
+          .select(FACT_COLS)
           .eq("retailer", retailer).eq("week_start", focus).order("id").range(from, to)
       );
       if (!lr.length) continue;
-      latestRows.push(...toFacts(lr));
+      latestRows.push(...toNetFacts(lr));
     }
-    const { top } = globalRankings(latestRows, prevByKey);
+    const aliases = await getApprovedAliases();
+    const { top } = globalRankings(latestRows, prevByKey, "value", aliases);
     const topRows = [
-      ["#", "Ürün", "Perakendeci", "Satış", "Ciro"],
-      ...top.map((r, i) => [i + 1, r.sku_name, r.retailer, Math.round(r.sales_qty), Math.round(r.sales_value)]),
+      ["#", "Ürün", "Firmalar", "Satış", "Ciro"],
+      ...top.map((r, i) => [i + 1, r.sku_name, (r.retailers ?? []).join(", "), Math.round(r.sales_qty), Math.round(r.sales_value)]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(topRows), "En Çok Satan");
 

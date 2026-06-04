@@ -30,7 +30,7 @@ export function normalizeNezih(rows: Row[], week: WeekRange, sourceFile: string)
   const cols = Object.keys(rows[0]);
   const colBarkod = matchCol(cols, ["barkod", "ean"]);
   const colName = matchCol(cols, ["urunadi", "adi", "urun"]);
-  const colSales = matchCol(cols, ["satis", "cikis", "satisadet"]);
+  const colSales = matchCol(cols, ["satis", "cikis", "cikisadet", "cikisadedi", "cikismiktar", "cikismiktari", "satisadet"]);
   const colStock = matchCol(cols, ["stok", "mevcutstok"]);
 
   const missing: string[] = [];
@@ -43,7 +43,7 @@ export function normalizeNezih(rows: Row[], week: WeekRange, sourceFile: string)
   }
 
   // "Çıkış" kolonu negatif=satış mantığında — işareti tersine çevir
-  const isCikis = fold(colSales!) === "cikis";
+  const isCikis = fold(colSales!).includes("cikis");
 
   const out: UnifiedRow[] = [];
   for (const r of rows) {

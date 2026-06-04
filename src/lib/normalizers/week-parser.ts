@@ -27,6 +27,16 @@ function iso(y: number, m: number, d: number): string {
   return `${y}-${mm}-${dd}`;
 }
 
+// ISO hafta numarasının Pazartesi'si (örn. 2026 W19 → 2026-05-04).
+function isoWeekMonday(year: number, wk: number): Date {
+  const simple = new Date(Date.UTC(year, 0, 1 + (wk - 1) * 7));
+  const dow = simple.getUTCDay();
+  const monday = new Date(simple);
+  const diff = dow <= 4 ? dow - 1 : dow - 8;
+  monday.setUTCDate(simple.getUTCDate() - diff);
+  return monday;
+}
+
 // Takvim geçerliliği — "31.04" / "32 Mart" gibi uydurma tarihler Postgres
 // (date not null) insert'ini düşürüp dosyayı sessizce kaybettirmesin.
 function isValidYmd(y: number, m: number, d: number): boolean {
@@ -39,7 +49,9 @@ function range(
   y1: number, m1: number, d1: number, y2: number, m2: number, d2: number
 ): WeekRange | null {
   if (!isValidYmd(y1, m1, d1) || !isValidYmd(y2, m2, d2)) return null;
-  return { start: iso(y1, m1, d1), end: iso(y2, m2, d2) };
+  const start = iso(y1, m1, d1), end = iso(y2, m2, d2);
+  if (start > end) return null; // başlangıç bitişten sonra olamaz (hatalı/karışık aralık)
+  return { start, end };
 }
 
 export interface WeekRange {
@@ -99,22 +111,24 @@ export function parseWeekFromFilename(filename: string): WeekRange | null {
     }
   }
 
-  // 4) ISO hafta no: w20_2026
-  const wn = nameL.match(/w(\d{1,2})[\s_-]*(\d{4})/);
+  // 4) ISO hafta no: "w20_2026", "W-19 2026", "W-21" (yıl opsiyonel → çıkarımla)
+  //    Armağan dosyaları "MYTHOS CARD W-19 2026 RAPOR" gibi adlandırılıyor.
+  const wn = nameL.match(/\bw[-_\s]*(\d{1,2})(?:[-_\s]+(\d{4}))?/);
   if (wn) {
-    const year = +wn[2], wk = +wn[1];
-    // ISO haftanın Pazartesi'si
-    const simple = new Date(Date.UTC(year, 0, 1 + (wk - 1) * 7));
-    const dow = simple.getUTCDay();
-    const monday = new Date(simple);
-    const diff = dow <= 4 ? dow - 1 : dow - 8;
-    monday.setUTCDate(simple.getUTCDate() - diff);
-    const sunday = new Date(monday);
-    sunday.setUTCDate(monday.getUTCDate() + 6);
-    return {
-      start: monday.toISOString().slice(0, 10),
-      end: sunday.toISOString().slice(0, 10),
-    };
+    const wk = +wn[1];
+    if (wk >= 1 && wk <= 53) {
+      let year = wn[2] ? +wn[2] : new Date().getFullYear();
+      let monday = isoWeekMonday(year, wk);
+      // Yıl yazılmamış ve hesaplanan hafta gelecekteyse, bir önceki yıla aittir
+      // (haftalık veri her zaman geçmiştir).
+      if (!wn[2] && monday.getTime() > Date.now()) {
+        year -= 1;
+        monday = isoWeekMonday(year, wk);
+      }
+      const sunday = new Date(monday);
+      sunday.setUTCDate(monday.getUTCDate() + 6);
+      return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) };
+    }
   }
 
   return null;

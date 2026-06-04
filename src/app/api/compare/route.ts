@@ -1,20 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
-import { comparePeriods, type FactRow } from "@/lib/compute";
+import { comparePeriods } from "@/lib/compute";
+import { getApprovedAliases } from "@/lib/aliases";
+import { toNetFacts, FACT_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
 export const maxDuration = 60;
-
-function toFacts(rows: any[]): FactRow[] {
-  return (rows ?? []).map((r) => ({
-    retailer: r.retailer, week_start: r.week_start, store: r.store ?? null,
-    sku_name: r.sku_name, barkod: r.barkod ?? null,
-    sales_qty: Number(r.sales_qty),
-    sales_value: r.sales_value != null ? Number(r.sales_value) : null,
-    stock_qty: Number(r.stock_qty),
-  }));
-}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -34,16 +26,17 @@ export async function GET(req: NextRequest) {
     const [aRows, bRows] = await Promise.all([
       fetchAllRows((from, to) =>
         supabase.from("fact_weekly")
-          .select("retailer, week_start, store, sku_name, barkod, sales_qty, sales_value, stock_qty")
+          .select(FACT_COLS)
           .eq("retailer", retailer).eq("week_start", weekA).order("id").range(from, to)
       ),
       fetchAllRows((from, to) =>
         supabase.from("fact_weekly")
-          .select("retailer, week_start, store, sku_name, barkod, sales_qty, sales_value, stock_qty")
+          .select(FACT_COLS)
           .eq("retailer", retailer).eq("week_start", weekB).order("id").range(from, to)
       ),
     ]);
-    const result = comparePeriods(toFacts(aRows), toFacts(bRows));
+    const aliases = await getApprovedAliases();
+    const result = comparePeriods(toNetFacts(aRows), toNetFacts(bRows), aliases);
     return NextResponse.json({ a: weekA, b: weekB, ...result });
   } catch (e: any) {
     console.error("compare hatası:", e);

@@ -5,6 +5,7 @@ import {
   momentum, anomalyScore, forecastNextWeek, weeksOfStock, wowPct, sellThrough,
   type WeekPoint,
 } from "./analytics";
+import { RETAILERS } from "./normalizers/types";
 
 export interface FactRow {
   retailer: string;
@@ -35,8 +36,6 @@ export interface Insight {
   detail: string;
   metric?: string;
 }
-
-const RETAILERS = ["Nezih", "Huppaluppo", "Armağan", "Toyzz", "DR"];
 
 // ---------- Özet (fact → weekly_summary eşleniği, test ve fallback için) ----------
 export function buildSummary(rows: FactRow[]): SummaryRow[] {
@@ -222,6 +221,73 @@ export function computeStockAlerts(
   return { critical: criticalList, declining: decliningList.slice(0, 30) };
 }
 
+// ---------- Sipariş önceliği: hızlı satıp stoğu yetmeyecek SKU'lar ----------
+// Tek başına "düşük stok" ölü/kayıp stoğu öne çıkarır ve aksiyon üretmez.
+// Asıl sinyal: son haftalarda istikrarlı satan AMA mevcut stoğu bu hıza
+// yetmeyecek ürünler. Hız = son N haftanın HAFTALIK ORTALAMA satışı (tek
+// haftanın oynaklığını törpüler); stok = en güncel haftanın stoğu.
+export interface ReorderRow {
+  sku_name: string;
+  barkod: string | null;
+  avg_sales: number;    // son N haftanın haftalık ortalama satışı (hız)
+  last_sales: number;   // son hafta satış
+  stock_qty: number;    // son hafta stok
+  sales_value: number;  // son hafta ciro (TL)
+  cover: number | null; // kaç hafta yeter = stok / haftalık ort. satış
+  weeks_used: number;   // ortalama kaç hafta üzerinden alındı
+  status: "tükendi" | "acil" | "izle" | "yeterli";
+}
+
+// recentRows: son N haftanın tüm fact satırları; weeks: o N haftanın listesi.
+export function reorderPriority(recentRows: FactRow[], weeks: string[], minAvg = 10): ReorderRow[] {
+  if (!weeks.length) return [];
+  const sorted = [...weeks].sort();
+  const latest = sorted[sorted.length - 1];
+  const n = sorted.length;
+  const inWindow = new Set(sorted);
+
+  type Agg = { sku: string; barkod: string | null; total: number; last: number; stock: number; val: number };
+  const m = new Map<string, Agg>();
+  for (const r of recentRows) {
+    if (!inWindow.has(r.week_start)) continue;
+    const e = m.get(r.sku_name) ?? { sku: r.sku_name, barkod: r.barkod ?? null, total: 0, last: 0, stock: 0, val: 0 };
+    e.total += r.sales_qty;
+    if (r.week_start === latest) {
+      e.last += r.sales_qty;
+      e.stock += r.stock_qty;
+      e.val += r.sales_value ?? 0;
+    }
+    if (!e.barkod && r.barkod) e.barkod = r.barkod;
+    m.set(r.sku_name, e);
+  }
+
+  const out: ReorderRow[] = [];
+  for (const e of m.values()) {
+    const avg = e.total / n; // haftalık ortalama (pencere boyu = n hafta)
+    if (avg < minAvg) continue; // yalnızca anlamlı satanlar (gürültüyü ele)
+    const cover = avg > 0 ? e.stock / avg : null;
+    let status: ReorderRow["status"];
+    if (e.stock <= 0) status = "tükendi";          // satıyor ama stok bitti → kayıp satış
+    else if ((cover ?? 0) < 1) status = "acil";    // ort. hıza bu hafta bile yetmez
+    else if ((cover ?? 0) < 2) status = "izle";
+    else status = "yeterli";
+    out.push({
+      sku_name: e.sku, barkod: e.barkod,
+      avg_sales: Math.round(avg * 10) / 10,
+      last_sales: e.last, stock_qty: e.stock, sales_value: e.val,
+      cover: cover == null ? null : Math.round(cover * 10) / 10,
+      weeks_used: n, status,
+    });
+  }
+  // En acil önce: düşük kapsam (stok/ort. satış) → eşitlikte yüksek ort. satış
+  out.sort((a, b) => {
+    const ca = a.cover ?? 0, cb = b.cover ?? 0;
+    if (ca !== cb) return ca - cb;
+    return b.avg_sales - a.avg_sales;
+  });
+  return out;
+}
+
 // ---------- Ürün cross-retailer pivot ----------
 export function pivotProduct(rows: FactRow[]) {
   const weeksSet = new Set<string>();
@@ -331,11 +397,21 @@ export function storePerformance(rows: FactRow[]): StorePerf[] {
     .sort((a, b) => b.sales_qty - a.sales_qty);
 }
 
+// ═══════════════════════ ÜRÜN KİMLİĞİ (kanonik anahtar) ═══════════════════════
+// Aynı ürünü firmalar arası birleştirmek için: barkod (varsa) → ONAYLI alias
+// barkodu (Toyzz vb. isim eşleşmesi) → 'NAME:'||isim (eşleşemeyen tek-firma kalır).
+export type AliasMap = Map<string, string>; // `${retailer}|${sku_name}` → barkod
+export function productKey(retailer: string, sku_name: string, barkod: string | null | undefined, aliases?: AliasMap): string {
+  if (barkod) return barkod;
+  const a = aliases?.get(`${retailer}|${sku_name}`);
+  return a ?? "NAME:" + sku_name;
+}
+
 // ═══════════════════════ GLOBAL SIRALAMALAR ═══════════════════════
 
 export interface RankedSku {
-  sku_name: string; retailer: string; barkod: string | null;
-  sales_qty: number; sales_value: number; prev_qty: number; prev_val: number; growth: number | null;
+  sku_name: string; retailers: string[]; barkod: string | null;
+  sales_qty: number; sales_value: number; stock_qty: number; prev_qty: number; prev_val: number; growth: number | null;
 }
 
 // Tüm perakendeciler genelinde SKU sıralaması (top sellers + risers + fallers).
@@ -343,23 +419,26 @@ export interface RankedSku {
 export function globalRankings(
   latestRows: FactRow[],
   prevByKey: Map<string, { qty: number; val: number }>,
-  metric: "value" | "qty" = "value"
+  metric: "value" | "qty" = "value",
+  aliases?: AliasMap
 ): { top: RankedSku[]; risers: RankedSku[]; fallers: RankedSku[] } {
-  const map = new Map<string, { retailer: string; barkod: string | null; qty: number; val: number }>();
+  // Kanonik ürün anahtarıyla (barkod/alias/isim) firmalar arası birleştir.
+  const map = new Map<string, { name: string; barkod: string | null; retailers: Set<string>; qty: number; val: number; stock: number }>();
   for (const r of latestRows) {
-    const key = `${r.retailer}|${r.sku_name}`;
+    const key = productKey(r.retailer, r.sku_name, r.barkod, aliases);
     let e = map.get(key);
-    if (!e) { e = { retailer: r.retailer, barkod: r.barkod, qty: 0, val: 0 }; map.set(key, e); }
-    e.qty += r.sales_qty; e.val += r.sales_value ?? 0;
+    if (!e) { e = { name: r.sku_name, barkod: r.barkod ?? null, retailers: new Set(), qty: 0, val: 0, stock: 0 }; map.set(key, e); }
+    e.qty += r.sales_qty; e.val += r.sales_value ?? 0; e.stock += r.stock_qty; e.retailers.add(r.retailer);
+    if (!e.barkod && r.barkod) e.barkod = r.barkod;
+    if (r.sku_name.length > e.name.length) e.name = r.sku_name; // temsili (en uzun) isim
   }
   const useVal = metric === "value";
   const ranked: RankedSku[] = [...map.entries()].map(([key, e]) => {
-    const sku_name = key.split("|")[1];
     const p = prevByKey.get(key) ?? { qty: 0, val: 0 };
     const cur = useVal ? e.val : e.qty;
     const prevM = useVal ? p.val : p.qty;
     const growth = prevM > 0 ? ((cur - prevM) / prevM) * 100 : null;
-    return { sku_name, retailer: e.retailer, barkod: e.barkod, sales_qty: e.qty, sales_value: e.val, prev_qty: p.qty, prev_val: p.val, growth };
+    return { sku_name: e.name, retailers: [...e.retailers].sort(), barkod: e.barkod, sales_qty: e.qty, sales_value: e.val, stock_qty: e.stock, prev_qty: p.qty, prev_val: p.val, growth };
   });
 
   const top = [...ranked].sort((a, b) => b.sales_qty - a.sales_qty).slice(0, 20);
@@ -480,14 +559,16 @@ export interface PeriodCompare {
 
 // İki haftayı SKU bazında karşılaştır (a = baz, b = karşılaştırılan).
 export function comparePeriods(
-  aRows: FactRow[], bRows: FactRow[]
+  aRows: FactRow[], bRows: FactRow[], aliases?: AliasMap
 ): { gainers: PeriodCompare[]; losers: PeriodCompare[]; newSkus: PeriodCompare[]; lostSkus: PeriodCompare[] } {
   const aggKey = (rows: FactRow[]) => {
-    const m = new Map<string, { retailer: string; qty: number }>();
+    const m = new Map<string, { retailer: string; name: string; qty: number }>();
     for (const r of rows) {
-      const k = `${r.retailer}|${r.sku_name}`;
-      const e = m.get(k) ?? { retailer: r.retailer, qty: 0 };
-      e.qty += r.sales_qty; m.set(k, e);
+      const k = productKey(r.retailer, r.sku_name, r.barkod, aliases);
+      const e = m.get(k) ?? { retailer: r.retailer, name: r.sku_name, qty: 0 };
+      e.qty += r.sales_qty;
+      if (r.sku_name.length > e.name.length) e.name = r.sku_name;
+      m.set(k, e);
     }
     return m;
   };
@@ -498,7 +579,8 @@ export function comparePeriods(
   const newSkus: PeriodCompare[] = [];
   const lostSkus: PeriodCompare[] = [];
   for (const k of keys) {
-    const [retailer, sku_name] = k.split("|");
+    const meta = (a.get(k) ?? b.get(k))!;
+    const retailer = meta.retailer, sku_name = meta.name;
     const aq = a.get(k)?.qty ?? 0;
     const bq = b.get(k)?.qty ?? 0;
     const delta = bq - aq;
@@ -565,6 +647,64 @@ export function computeCoverage(
     const lastStock = e.stockByWeek.get(lastWeek) ?? 0;
     out.push({ sku_name: sku, avg_weekly: avg, last_stock: lastStock, coverage: avg > 0 ? lastStock / avg : null });
   }
+  return out;
+}
+
+// ═══════════════════════ ÖLÜ STOK (ağ geneli, firmalar arası) ═══════════════════════
+// product_coverage matview satırları (her satır bir ürün×firma) → ürün bazında
+// firmalar arası birleştirilir. Ağ coverage = toplam stok / toplam haftalık hız.
+// Coverage null + stok>0 = hiç satmayan (sonsuz coverage = en ölü).
+
+export interface CoverageItem {
+  retailer: string; product_key: string; barkod: string | null; sku_name: string;
+  avg_weekly: number; last_stock: number; coverage_weeks: number | null;
+}
+export interface DeadStockFirm {
+  retailer: string; sku_name: string; stock: number; velocity: number; coverage: number | null;
+}
+export interface DeadStockProduct {
+  product_key: string; barkod: string | null; name: string;
+  total_stock: number; total_velocity: number; coverage: number | null; // ağ geneli
+  never_sold: boolean;             // hiçbir firmada satmıyor ama stok var
+  max_firm_coverage: number | null; // en yüksek firma coverage (∞ → null)
+  firms: DeadStockFirm[];
+}
+
+export function groupDeadStock(items: CoverageItem[]): DeadStockProduct[] {
+  const map = new Map<string, CoverageItem[]>();
+  for (const it of items) {
+    if (!map.has(it.product_key)) map.set(it.product_key, []);
+    map.get(it.product_key)!.push(it);
+  }
+  const out: DeadStockProduct[] = [];
+  for (const [pk, arr] of map) {
+    const total_stock = arr.reduce((a, r) => a + r.last_stock, 0);
+    const total_velocity = arr.reduce((a, r) => a + r.avg_weekly, 0);
+    const coverage = total_velocity > 0 ? total_stock / total_velocity : null;
+    const name = [...arr].sort((a, b) => b.sku_name.length - a.sku_name.length)[0]?.sku_name || pk.replace(/^NAME:/, "");
+    const barkod = arr.find((r) => r.barkod)?.barkod ?? null;
+    const firms: DeadStockFirm[] = arr
+      .map((r) => ({ retailer: r.retailer, sku_name: r.sku_name, stock: r.last_stock, velocity: r.avg_weekly, coverage: r.coverage_weeks }))
+      .sort((a, b) => b.stock - a.stock);
+    // en yüksek firma coverage (hiç satmayan-stoklu firma varsa ∞ = null)
+    let maxFirm = 0; let inf = false;
+    for (const f of firms) {
+      if (f.coverage == null) { if (f.stock > 0) inf = true; }
+      else if (f.coverage > maxFirm) maxFirm = f.coverage;
+    }
+    out.push({
+      product_key: pk, barkod, name, total_stock, total_velocity, coverage,
+      never_sold: coverage == null && total_stock > 0,
+      max_firm_coverage: inf ? null : maxFirm,
+      firms,
+    });
+  }
+  // Hiç satmayanlar (∞) önce, stoğa göre; sonra coverage azalan.
+  out.sort((a, b) => {
+    if (a.never_sold !== b.never_sold) return a.never_sold ? -1 : 1;
+    if (a.never_sold && b.never_sold) return b.total_stock - a.total_stock;
+    return (b.coverage ?? 0) - (a.coverage ?? 0);
+  });
   return out;
 }
 

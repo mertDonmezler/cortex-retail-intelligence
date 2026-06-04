@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { fmtInt, fmtMoney, fmtPct, fmtDate } from "@/lib/format";
+import { fmtInt, fmtMoney, fmtPct, fmtDate, RETAILER_COLORS } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { fetchJson } from "@/lib/fetchJson";
 
-const COLORS: Record<string, string> = {
-  Nezih: "#1FF80B", Huppaluppo: "#0bd1f8", Armağan: "#f8b00b", Toyzz: "#f80b8a", DR: "#9b6bff",
-};
+const COLORS = RETAILER_COLORS;
 
 type Tab = "top" | "risers" | "fallers" | "categories";
 
@@ -26,12 +25,7 @@ export default function RankingsPage() {
     const params = new URLSearchParams();
     if (week) params.set("week", week);
     params.set("metric", metric);
-    fetch(`/api/rankings?${params.toString()}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/rankings?${params.toString()}`)
       .then((d) => { setData(d); setWeeks(d?.weeks ?? []); setErr(null); })
       .catch((e) => { setErr(e.message); setData(null); }) // hatada veriyi sıfırla; render güvenli default'lara düşer
       .finally(() => setLoading(false));
@@ -52,9 +46,9 @@ export default function RankingsPage() {
         { key: "sales_qty", label: "Satış" }, { key: "sales_value", label: "TL" }, { key: "sku_count", label: "SKU" },
       ]);
     } else {
-      downloadCsv(`cortex-${tab}`, data?.[tab] ?? [], [
-        { key: "sku_name", label: "Ürün" }, { key: "retailer", label: "Perakendeci" },
-        { key: "sales_qty", label: "Satış" }, { key: "prev_qty", label: "Önceki" },
+      downloadCsv(`cortex-${tab}`, (data?.[tab] ?? []).map((r: any) => ({ ...r, firmalar: (r.retailers ?? []).join(", ") })), [
+        { key: "sku_name", label: "Ürün" }, { key: "barkod", label: "Barkod" }, { key: "firmalar", label: "Firmalar" },
+        { key: "sales_qty", label: "Satış" }, { key: "stock_qty", label: "Stok" }, { key: "prev_qty", label: "Önceki" },
         { key: "growth", label: "Büyüme %" }, { key: "sales_value", label: "TL" },
       ]);
     }
@@ -124,7 +118,7 @@ export default function RankingsPage() {
           <table>
             <thead>
               <tr>
-                <th>#</th><th>Ürün</th><th>Perakendeci</th><th>Satış</th>
+                <th>#</th><th>Ürün</th><th>Firmalar</th><th>Satış</th><th>Stok</th>
                 {tab !== "top" && <><th>Önceki</th><th>Büyüme</th></>}
                 <th>TL</th>
               </tr>
@@ -133,9 +127,16 @@ export default function RankingsPage() {
               {(data?.[tab] ?? []).map((r: any, i: number) => (
                 <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}>
                   <td className="mono text-txt-dim">{i + 1}</td>
-                  <td className="max-w-xs truncate" title={r.sku_name}>{r.sku_name}</td>
-                  <td><span className="mono text-xs px-2 py-0.5 rounded" style={{ color: COLORS[r.retailer], border: `1px solid ${COLORS[r.retailer]}40` }}>{r.retailer}</span></td>
+                  <td className="max-w-xs truncate" title={(r.barkod ? r.barkod + " · " : "") + r.sku_name}>{r.sku_name}</td>
+                  <td>
+                    <div className="flex gap-1 flex-wrap">
+                      {(r.retailers ?? []).map((rt: string) => (
+                        <span key={rt} className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ color: COLORS[rt] ?? "#7d927d", border: `1px solid ${COLORS[rt] ?? "#7d927d"}40` }}>{rt}</span>
+                      ))}
+                    </div>
+                  </td>
                   <td className="mono">{fmtInt(r.sales_qty)}</td>
+                  <td className="mono text-txt-dim">{fmtInt(r.stock_qty)}</td>
                   {tab !== "top" && <>
                     <td className="mono text-txt-dim">{fmtInt(r.prev_qty)}</td>
                     <td className={`mono ${(r.growth ?? 0) >= 0 ? "text-neon" : "text-red-400"}`}>{fmtPct(r.growth)}</td>

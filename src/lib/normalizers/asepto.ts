@@ -81,11 +81,8 @@ function aggregatePsf(rows: Row[], retailer: Retailer, week: WeekRange, source: 
     if ((!ad && !kod) || /toplam|genel/i.test(ad) || /toplam|genel/i.test(kod)) continue;
     const qty = num(r["Toplam Satış Adedi"]);
     const price = psfCol ? numOrNull(r[psfCol]) : null;
-    let salesValue: number | null = null;
-    if (price != null) {
-      const v = price * qty;
-      salesValue = v > 0 ? v : null;
-    }
+    // qty=0 → ciro 0 (satış yok); fiyat yoksa enrichment doldursun (null). Armağan ile aynı kural.
+    const salesValue = qty > 0 ? (price != null ? price * qty : null) : 0;
     out.push({
       ...base(retailer, week, source),
       store: null,

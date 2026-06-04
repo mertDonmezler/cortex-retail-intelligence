@@ -8,6 +8,9 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { normalizeFile } from "../src/lib/normalizers/index";
+import { netFactor } from "../src/lib/margins";
+import { channelSummaries, consignmentKpis, reconcileChannels, aging, salesCollectionSchedule } from "../src/lib/consignment";
+import type { ConsignmentLine } from "../src/lib/normalizers/types";
 import { parseWeekFromFilename } from "../src/lib/normalizers/week-parser";
 import type { Retailer, UnifiedRow } from "../src/lib/normalizers/types";
 import {
@@ -15,7 +18,7 @@ import {
 } from "../src/lib/analytics";
 import {
   buildSummary, retailerCardMetrics, generateInsights, findStockoutRisks,
-  computeStockAlerts, pivotProduct, parseProductMeta, categoryBreakdown,
+  computeStockAlerts, reorderPriority, pivotProduct, parseProductMeta, categoryBreakdown,
   storePerformance, globalRankings, execOverview, comparePeriods, type FactRow,
 } from "../src/lib/compute";
 
@@ -199,6 +202,53 @@ if (!existsSync(seedRoot)) {
   check("stok alarm declining dizi", Array.isArray(alerts.declining));
   check("critical hepsi <= eşik", alerts.critical.every((c: any) => c.stock_qty <= 10));
   check("declining hepsi <= -30%", alerts.declining.every((d: any) => d.pct <= -30));
+
+  // Sipariş önceliği (reorder) — son N haftanın haftalık ortalamasına göre
+  const drWin = [...new Set(facts.filter((f) => f.retailer === "DR").map((f) => f.week_start))].sort().slice(-4);
+  const reorder = reorderPriority(facts.filter((f) => f.retailer === "DR" && drWin.includes(f.week_start)), drWin, 10);
+  check("reorder hepsi ort. satış >= 10", reorder.every((r) => r.avg_sales >= 10));
+  check("reorder kapsam artan (aciliyet sırası)", reorder.every((r, i) => i === 0 || (reorder[i - 1].cover ?? 0) <= (r.cover ?? 0)));
+  check("reorder tükendi => stok 0", reorder.filter((r) => r.status === "tükendi").every((r) => r.stock_qty <= 0));
+  check("reorder weeks_used <= 4", reorder.every((r) => r.weeks_used <= 4));
+  check("reorder boş giriş boş", reorderPriority([], [], 10).length === 0);
+
+  // Net kazanç (çalışma marjı + KDV) — margins.ts
+  check("net Toyzz %50: 1000 → ~416,7", Math.abs(1000 * netFactor("Toyzz") - 416.6667) < 0.1);
+  check("net Nezih %43: 100 → 47,5", Math.abs(100 * netFactor("Nezih") - 47.5) < 0.001);
+  check("net DR %47: 100 → ~44,17", Math.abs(100 * netFactor("DR") - 44.1667) < 0.01);
+  check("net tanımsız kanal → yalnız KDV (÷1,2)", Math.abs(120 * netFactor("Bilinmeyen") - 100) < 0.001);
+
+  // ───────── Sat-Öde / Konsinye (consignment.ts) ─────────
+  const cl = (o: { r: string; inv: string; idate: string; due: string; qty: number; net: number; vat: number }): ConsignmentLine => ({
+    retailer: o.r as any, cari_adi: o.r, cari_kodu: null, invoice_no: o.inv, belge_no: null,
+    invoice_date: o.idate, due_date: o.due, line_no: null, stock_code: null, product_name: "X",
+    ana_grup: null, alt_grup: null, qty: o.qty, unit_price_net: null,
+    net_amount: o.net, vat: o.vat, total: o.net + o.vat, source_file: "t",
+  });
+  const clines = [
+    cl({ r: "DR", inv: "A1", idate: "2026-02-01", due: "2026-05-01", qty: 10, net: 100, vat: 20 }),
+    cl({ r: "Toyzz", inv: "B1", idate: "2026-02-10", due: "2026-07-10", qty: 5, net: 50, vat: 10 }),
+  ];
+  const cToday = "2026-06-01";
+  const cDR = channelSummaries(clines, cToday).find((c) => c.retailer === "DR")!;
+  check("consign DR total=net+vat=120", cDR.total === 120 && cDR.net === 100 && cDR.vat === 20);
+  const cKpi = consignmentKpis(clines, cToday);
+  check("consign KPI gross=net×1.2 (KDV %20)", Math.abs(cKpi.totalGross - cKpi.totalNet * 1.2) < 0.01);
+  check("consign KPI kanal=2", cKpi.channelCount === 2);
+  const cWk = [
+    { retailer: "DR", week_start: "2026-01-01", net: 30 }, // sevk öncesi → sayılmamalı
+    { retailer: "DR", week_start: "2026-03-01", net: 70 },
+  ];
+  const rDR = reconcileChannels(clines, cWk).find((r) => r.retailer === "DR")!;
+  check("reconcile DR coverage ok", rDR.coverage === "ok");
+  check("reconcile pencere: sevk öncesi satış elenir (soldNet=70)", rDR.soldNet === 70);
+  check("reconcile DR sell%=70", Math.abs((rDR.sellThroughPct ?? 0) - 70) < 0.01);
+  check("reconcile DR iade riski=30", rDR.returnRiskNet === 30);
+  const rTZ = reconcileChannels(clines, cWk).find((r) => r.retailer === "Toyzz")!;
+  check("reconcile satış verisi yok → coverage none", rTZ.coverage === "none");
+  check("aging DR vadesi geçmiş → overdue=120", aging(clines, cToday).overdue === 120);
+  const cSc = salesCollectionSchedule(cWk, cToday);
+  check("salesSchedule toplam net=100", Math.abs((cSc.collectedTotal + cSc.upcomingTotal) - 100) < 0.01);
 
   // Ürün pivot — barkodu olan bir SKU seç
   const sampleBarkod = facts.find((f) => f.barkod && f.retailer === "Nezih")?.barkod;

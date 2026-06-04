@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { RETAILERS, fmtInt, fmtPct, fmtDate } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
+import { fetchJson } from "@/lib/fetchJson";
 
 type View = "gainers" | "losers" | "newSkus" | "lostSkus";
 
@@ -20,12 +21,7 @@ export default function ComparePage() {
   // Hafta listesini yükle
   useEffect(() => {
     setErr("");
-    fetch(`/api/compare?retailer=${encodeURIComponent(retailer)}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/compare?retailer=${encodeURIComponent(retailer)}`)
       .then((d) => {
         const w = d.weeks ?? [];
         setWeeks(w);
@@ -45,12 +41,7 @@ export default function ComparePage() {
     setLoading(true);
     setErr("");
     setData(null); // Perakendeci/hafta değişince eski veri ekranda kalmasın
-    fetch(`/api/compare?retailer=${encodeURIComponent(retailer)}&a=${weekA}&b=${weekB}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/compare?retailer=${encodeURIComponent(retailer)}&a=${weekA}&b=${weekB}`)
       .then((d) => setData(d))
       .catch((e) => {
         // Hata: karşılaştırma verisini güvenli boş default'a çek

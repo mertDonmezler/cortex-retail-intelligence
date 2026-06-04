@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { fmtInt, fmtMoney, fmtDate } from "@/lib/format";
+import { fmtInt, fmtMoney, fmtDate, RETAILER_COLORS } from "@/lib/format";
+import { fetchJson } from "@/lib/fetchJson";
 
-const COLORS: Record<string, string> = {
-  Nezih: "#1FF80B", Huppaluppo: "#0bd1f8", Armağan: "#f8b00b", Toyzz: "#f80b8a", DR: "#9b6bff",
-};
+const COLORS = RETAILER_COLORS;
 
 export default function ProductPage() {
   const [q, setQ] = useState("");
@@ -23,12 +22,7 @@ export default function ProductPage() {
     setSearching(true);
     setErr("");
     const t = setTimeout(() => {
-      fetch(`/api/product?q=${encodeURIComponent(q)}`)
-        .then(async (r) => {
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-          return d;
-        })
+      fetchJson(`/api/product?q=${encodeURIComponent(q)}`)
         .then((d) => setResults(d.results ?? []))
         .catch((e) => { setErr(e.message); setResults([]); })
         .finally(() => setSearching(false));
@@ -38,12 +32,7 @@ export default function ProductPage() {
 
   function selectProduct(barkod: string) {
     setErr("");
-    fetch(`/api/product?barkod=${encodeURIComponent(barkod)}`)
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatası " + r.status));
-        return d;
-      })
+    fetchJson(`/api/product?barkod=${encodeURIComponent(barkod)}`)
       .then((d) => setSelected(d))
       .catch((e) => { setErr(e.message); setSelected(null); });
   }

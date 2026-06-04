@@ -76,7 +76,7 @@ export default function DashboardPage() {
             Perakende <span className="neon-text">Dashboard</span>
           </h1>
           <p className="text-txt-dim mono text-sm mt-1">
-            Mythos Cards · çok-perakendeci retail intelligence
+            Mythos Cards · çok-perakendeci · ciro = net kazanç (çalışma marjı + KDV düşülmüş)
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
