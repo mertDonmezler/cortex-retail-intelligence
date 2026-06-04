@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { comparePeriods } from "@/lib/compute";
 import { getApprovedAliases } from "@/lib/aliases";
-import { toNetFacts, FACT_COLS } from "@/lib/rows";
+import { toNetFacts, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -25,14 +25,14 @@ export async function GET(req: NextRequest) {
     }
     const [aRows, bRows] = await Promise.all([
       fetchAllRows((from, to) =>
-        supabase.from("fact_weekly")
-          .select(FACT_COLS)
-          .eq("retailer", retailer).eq("week_start", weekA).order("id").range(from, to)
+        supabase.from("sku_weekly")
+          .select(SKU_COLS)
+          .eq("retailer", retailer).eq("week_start", weekA).order("sku_name").range(from, to)
       ),
       fetchAllRows((from, to) =>
-        supabase.from("fact_weekly")
-          .select(FACT_COLS)
-          .eq("retailer", retailer).eq("week_start", weekB).order("id").range(from, to)
+        supabase.from("sku_weekly")
+          .select(SKU_COLS)
+          .eq("retailer", retailer).eq("week_start", weekB).order("sku_name").range(from, to)
       ),
     ]);
     const aliases = await getApprovedAliases();

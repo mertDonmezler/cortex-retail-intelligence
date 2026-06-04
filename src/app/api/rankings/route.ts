@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { globalRankings, categoryBreakdown, productKey, type FactRow } from "@/lib/compute";
 import { getApprovedAliases } from "@/lib/aliases";
-import { RETAILERS } from "@/lib/normalizers/types";
 import { netFactor } from "@/lib/margins";
-import { toNetFacts, FACT_COLS } from "@/lib/rows";
+import { toNetFacts, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -30,27 +29,25 @@ export async function GET(req: NextRequest) {
     }
 
     const aliases = await getApprovedAliases(); // onaylı Toyzz vb. → barkod
-    const latestRows: FactRow[] = [];
+    let latestRows: FactRow[] = [];
     const prevByKey = new Map<string, { qty: number; val: number }>();
-    if (focus) for (const retailer of RETAILERS) {
-      // STRICT: yalnızca TAM o haftanın verisi. O hafta yoksa bu perakendeci hiç
-      // dahil edilmez (eskiden as-of ile geçen haftanın verisi karışıyordu).
+    if (focus) {
+      // HIZ: tüm firmaların o haftasını TEK sorguda çek (sku_weekly'de yalnız
+      // veri olan firma-hafta kombinasyonu var → STRICT davranış kendiliğinden).
       const lr = await fetchAllRows((from, to) =>
-        supabase.from("fact_weekly")
-          .select(FACT_COLS)
-          .eq("retailer", retailer).eq("week_start", focus).order("id").range(from, to)
+        supabase.from("sku_weekly").select(SKU_COLS)
+          .eq("week_start", focus).order("retailer").order("sku_name").range(from, to)
       );
-      if (!lr.length) continue;
-      latestRows.push(...toNetFacts(lr)); // ciro → net kazanç
+      latestRows = toNetFacts(lr); // ciro → net kazanç
       if (prevWeek) {
         const pr = await fetchAllRows((from, to) =>
-          supabase.from("fact_weekly")
-            .select("retailer, sku_name, barkod, sales_qty, sales_value").eq("retailer", retailer).eq("week_start", prevWeek).order("id").range(from, to)
+          supabase.from("sku_weekly").select("retailer, sku_name, barkod, sales_qty, sales_value")
+            .eq("week_start", prevWeek).order("retailer").order("sku_name").range(from, to)
         );
         for (const r of pr) {
           const k = productKey(r.retailer, r.sku_name, r.barkod, aliases);
           const e = prevByKey.get(k) ?? { qty: 0, val: 0 };
-          e.qty += Number(r.sales_qty); e.val += Number(r.sales_value ?? 0) * netFactor(retailer);
+          e.qty += Number(r.sales_qty); e.val += Number(r.sales_value ?? 0) * netFactor(r.retailer);
           prevByKey.set(k, e);
         }
       }

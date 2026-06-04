@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { reorderPriority } from "@/lib/compute";
-import { toNetFacts, FACT_COLS } from "@/lib/rows";
+import { toNetFacts, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -27,9 +27,9 @@ export async function GET(req: NextRequest) {
     const latest = weeks[0];
 
     const rows = await fetchAllRows((from, to) =>
-      supabase.from("fact_weekly")
-        .select(FACT_COLS)
-        .eq("retailer", retailer).in("week_start", weeks).order("id").range(from, to)
+      supabase.from("sku_weekly")
+        .select(SKU_COLS)
+        .eq("retailer", retailer).in("week_start", weeks).order("week_start").order("sku_name").range(from, to)
     );
 
     const items = reorderPriority(toNetFacts(rows), weeks, minSales);

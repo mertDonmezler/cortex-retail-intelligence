@@ -3,7 +3,7 @@ import { supabase, fetchAllRows } from "@/lib/supabase";
 import { generateInsights, findStockoutRisks } from "@/lib/compute";
 import { RETAILERS } from "@/lib/normalizers/types";
 import { netRows } from "@/lib/margins";
-import { toFacts, toSummary, FACT_COLS } from "@/lib/rows";
+import { toFacts, toSummary, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -25,9 +25,9 @@ export async function GET() {
         const recent = weeks.slice(-4);
         const rows = await fetchAllRows((from, to) =>
           supabase
-            .from("fact_weekly")
-            .select(FACT_COLS)
-            .eq("retailer", retailer).in("week_start", recent).order("id").range(from, to)
+            .from("sku_weekly")
+            .select(SKU_COLS)
+            .eq("retailer", retailer).in("week_start", recent).order("week_start").order("sku_name").range(from, to)
         );
         allRisks.push(...findStockoutRisks(toFacts(rows), retailer, recent));
       } catch (e) {

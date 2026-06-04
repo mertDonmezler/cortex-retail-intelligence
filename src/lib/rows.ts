@@ -8,6 +8,16 @@ import { netRows } from "./margins";
 export const FACT_COLS =
   "retailer, week_start, store, sku_name, barkod, sales_qty, sales_value, stock_qty";
 
+// HIZ: mağaza boyutu çökertilmiş haftalık SKU matview'i (sku_weekly) — store yok.
+// rankings/stock-alerts/insights/compare SKU bazında topladığı için bundan okur
+// (DR'de ~15K mağaza-satırı yerine ~250 SKU-satırı). toFacts store'u null yapar.
+export const SKU_COLS =
+  "retailer, week_start, sku_name, barkod, sales_qty, sales_value, stock_qty";
+
+// Mağaza-hafta özet matview'i (store_weekly) kolonları.
+export const STORE_COLS =
+  "retailer, week_start, store, sales_qty, sales_value, stock_qty, sku_count";
+
 // Ham DB satırları → FactRow[] (ciro BRÜT — net için toNetFacts kullan).
 export function toFacts(rows: any[]): FactRow[] {
   return (rows ?? []).map((r) => ({

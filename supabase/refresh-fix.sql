@@ -18,6 +18,8 @@ begin
   refresh materialized view concurrently data_freshness;
   refresh materialized view concurrently sku_coverage;
   refresh materialized view concurrently product_coverage;
+  refresh materialized view concurrently sku_weekly;   -- HIZ (rankings/insights/stock-alerts/compare)
+  refresh materialized view concurrently store_weekly; -- HIZ (stores)
 end;
 $$;
 grant execute on function refresh_summaries() to service_role;
