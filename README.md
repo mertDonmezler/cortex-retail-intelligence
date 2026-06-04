@@ -115,8 +115,13 @@ cp .env.example .env.local
 #   CORTEX_SESSION üret:
 node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
 
-# 3) Veritabanı şeması (Supabase SQL editöründe sırayla çalıştır)
-#   supabase/schema.sql  →  supabase/perf-matviews.sql  →  supabase/coverage.sql
+# 3) Veritabanı şeması (Supabase SQL editöründe bağımlılık sırasıyla çalıştır)
+#   supabase/schema.sql            # fact_weekly + import_log + sku_prices + temel matview'lar
+#   supabase/consignment.sql       # consignment_lines (sat-öde) tablosu
+#   supabase/product-alias.sql     # product_alias (barkod eşleme) tablosu
+#   supabase/coverage.sql          # sku_coverage matview
+#   supabase/product-coverage.sql  # product_coverage matview (product_alias'a bağımlı)
+#   supabase/refresh-fix.sql       # refresh_summaries() + refresh_product_coverage() (en son)
 
 # 4) Geliştirme sunucusu
 npm run dev    # http://localhost:3000  (önce /giris ekranı gelir)

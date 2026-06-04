@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,15 @@ export const dynamic = "force-dynamic";
 const PIN = process.env.SITE_PIN || "";
 const SESSION = process.env.CORTEX_SESSION || "";
 const COOKIE = "cortex_auth";
+
+// Sabit-zamanlı PIN karşılaştırması: uzunluk farkında hemen false dön (timingSafeEqual
+// eşit uzunluk ister), eşit uzunlukta ise zamanlama sızıntısı olmadan karşılaştır.
+function pinMatches(got: string): boolean {
+  const a = Buffer.from(got);
+  const b = Buffer.from(PIN);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -21,7 +31,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (pin !== PIN) {
+  if (!pinMatches(pin)) {
     // Kaba kuvveti yavaşlatmak için küçük gecikme.
     await new Promise((r) => setTimeout(r, 500));
     return NextResponse.json({ ok: false, error: "Hatalı PIN" }, { status: 401 });

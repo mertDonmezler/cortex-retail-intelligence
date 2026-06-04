@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { supabaseAdmin, fetchAllRows } from "@/lib/supabase";
 import { normalizeFile } from "@/lib/normalizers";
 import type { Retailer, UnifiedRow } from "@/lib/normalizers/types";
@@ -10,35 +9,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // Yükleme bu endpoint'in tek YAZMA/SİLME yüzeyidir ve service-role (RLS bypass)
-// kullanır. Kimliksiz erişimde herkes veriyi silip değiştirebilir; bu yüzden
-// paylaşılan bir gizli anahtar (UPLOAD_TOKEN) zorunludur. Anahtar istemci
-// bundle'ına gömülmez — kullanıcı yükleme sayfasında bir kez girer ve
-// `x-upload-token` header'ı ile gönderilir.
+// kullanır. Erişim, tüm /api/* yüzeyini koruyan middleware PIN çereziyle sağlanır;
+// bu yüzden ayrı bir yükleme anahtarı katmanı tutulmaz.
 const MAX_FILES = 20;
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // 4MB/dosya (Vercel serverless gövde limiti ~4.5MB)
-
-function tokenOk(req: NextRequest): boolean {
-  const expected = process.env.UPLOAD_TOKEN;
-  if (!expected) return false; // env yoksa fail-closed: hiç kimse yazamaz
-  const got =
-    req.headers.get("x-upload-token") ??
-    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    "";
-  const a = Buffer.from(got);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: NextRequest) {
-  if (!tokenOk(req)) {
-    return NextResponse.json(
-      { error: "Yetkisiz. Geçerli yükleme anahtarı gerekli." },
-      { status: 401 }
-    );
-  }
   try {
     const form = await req.formData();
     const retailer = form.get("retailer") as Retailer | null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { RETAILERS } from "@/lib/format";
 
 interface UploadResult {
@@ -15,23 +15,12 @@ const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // Vercel serverless gövde limiti ~4.5
 export default function UploadPage() {
   const [retailer, setRetailer] = useState(RETAILERS[0]);
   const [files, setFiles] = useState<File[]>([]);
-  const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<UploadResult[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Yükleme anahtarı yalnızca tarayıcı oturumunda tutulur (bundle'a gömülmez).
-  useEffect(() => {
-    const saved = sessionStorage.getItem("cortex_upload_token");
-    if (saved) setToken(saved);
-  }, []);
-  useEffect(() => {
-    if (token) sessionStorage.setItem("cortex_upload_token", token);
-  }, [token]);
-
   async function submit() {
     if (!files.length) return;
-    if (!token) { setErr("Önce yükleme anahtarını gir."); return; }
     const total = files.reduce((s, f) => s + f.size, 0);
     if (total > MAX_TOTAL_BYTES) {
       setErr(
@@ -49,13 +38,11 @@ export default function UploadPage() {
     try {
       const r = await fetch("/api/upload", {
         method: "POST",
-        headers: { "x-upload-token": token },
         body: fd,
       });
       if (!r.ok) {
         let msg = `Sunucu hatası (${r.status})`;
-        if (r.status === 401) msg = "Yükleme anahtarı yanlış.";
-        else if (r.status === 413) msg = "Dosya(lar) çok büyük — daha küçük partiler halinde dene.";
+        if (r.status === 413) msg = "Dosya(lar) çok büyük — daha küçük partiler halinde dene.";
         else {
           try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* JSON değil */ }
         }
@@ -85,22 +72,6 @@ export default function UploadPage() {
       </div>
 
       <div className="card p-6 space-y-5">
-        <div>
-          <label className="mono text-xs text-txt-dim uppercase tracking-wider">Yükleme anahtarı</label>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Ekip yükleme anahtarı (UPLOAD_TOKEN)"
-            autoComplete="off"
-            className="mt-2 block w-full max-w-sm text-sm text-txt mono bg-ink/40
-              border border-line rounded-lg px-3 py-2 focus:border-neon/60 outline-none"
-          />
-          <p className="mono text-[11px] text-txt-dim mt-1">
-            Yalnızca bu tarayıcı oturumunda saklanır; veri yazımı bu anahtarla korunur.
-          </p>
-        </div>
-
         <div>
           <label className="mono text-xs text-txt-dim uppercase tracking-wider">Perakendeci</label>
           <div className="flex gap-2 mt-2 flex-wrap">
@@ -143,7 +114,7 @@ export default function UploadPage() {
 
         <button
           onClick={submit}
-          disabled={busy || !files.length || !token}
+          disabled={busy || !files.length}
           className="mono text-sm px-6 py-3 rounded-lg bg-neon text-ink font-bold
             disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neon-dim transition-colors"
         >

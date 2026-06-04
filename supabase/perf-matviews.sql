@@ -36,15 +36,7 @@ create unique index if not exists idx_df_retailer on data_freshness (retailer);
 grant select on weekly_summary to anon, authenticated;
 grant select on data_freshness to anon, authenticated;
 
--- Yenileme fonksiyonu (yazımdan sonra çağrılır). security definer → RLS/yetki bypass.
-create or replace function refresh_summaries() returns void
-language plpgsql security definer as $$
-begin
-  refresh materialized view concurrently weekly_summary;
-  refresh materialized view concurrently data_freshness;
-end;
-$$;
-grant execute on function refresh_summaries() to anon, authenticated, service_role;
+-- Yenileme fonksiyonu (refresh_summaries) tek yerde tanımlıdır: supabase/refresh-fix.sql.
 
 -- Güvenlik ağı: ilk/ağır sorgular için API rollerinde statement_timeout'u yükselt.
 alter role anon set statement_timeout = '30s';

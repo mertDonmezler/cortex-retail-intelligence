@@ -8,7 +8,7 @@ begin
   refresh materialized view concurrently product_coverage;
 end;
 $$;
-grant execute on function refresh_product_coverage() to anon, authenticated, service_role;
+grant execute on function refresh_product_coverage() to service_role;
 
 create or replace function refresh_summaries() returns void
 language plpgsql security definer as $$
@@ -20,4 +20,4 @@ begin
   refresh materialized view concurrently product_coverage;
 end;
 $$;
-grant execute on function refresh_summaries() to anon, authenticated, service_role;
+grant execute on function refresh_summaries() to service_role;

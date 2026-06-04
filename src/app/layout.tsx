@@ -2,29 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 import { LogoutButton } from "@/components/LogoutButton";
+import { Nav } from "@/components/Nav";
 
 export const metadata: Metadata = {
   title: "CORTEX — Mythos Retail Intelligence",
   description: "Çok-perakendeci haftalık satış & stok zekası. Momentum, anomali, stockout tahmini, cross-retailer analiz.",
 };
-
-const NAV = [
-  { href: "/", label: "Dashboard" },
-  { href: "/overview", label: "Özet" },
-  { href: "/insights", label: "Intelligence" },
-  { href: "/rankings", label: "Sıralamalar" },
-  { href: "/compare", label: "Karşılaştır" },
-  { href: "/stores", label: "Mağazalar" },
-  { href: "/product", label: "Ürün" },
-  { href: "/sku", label: "SKU" },
-  { href: "/stock-alerts", label: "Sipariş" },
-  { href: "/stok", label: "Stok Durumu" },
-  { href: "/coverage", label: "Stok Süresi" },
-  { href: "/olu-stok", label: "Ölü Stok" },
-  { href: "/eslesme", label: "Eşleşme" },
-  { href: "/sat-ode", label: "Sat-Öde" },
-  { href: "/upload", label: "Yükle" },
-];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -58,17 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="mono text-[9px] text-txt-dim tracking-wider mt-0.5">MYTHOS RETAIL INTELLIGENCE · UNHOLY LABS</div>
               </div>
             </Link>
-            <nav className="flex gap-0.5 flex-wrap justify-end">
-              {NAV.map((n) => (
-                <Link
-                  key={n.href}
-                  href={n.href}
-                  className="mono text-xs px-3 py-2 rounded-lg text-txt-dim hover:text-neon hover:bg-neon/5 transition-colors whitespace-nowrap"
-                >
-                  {n.label}
-                </Link>
-              ))}
-            </nav>
+            <Nav />
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>

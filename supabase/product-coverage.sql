@@ -44,13 +44,4 @@ create unique index if not exists idx_pcov_key on product_coverage (retailer, pr
 create index if not exists idx_pcov_barkod on product_coverage (barkod);
 grant select on product_coverage to anon, authenticated;
 
--- refresh_summaries product_coverage'ı da yenilesin (veri yazımından sonra).
-create or replace function refresh_summaries() returns void
-language plpgsql security definer as $$
-begin
-  refresh materialized view concurrently weekly_summary;
-  refresh materialized view concurrently data_freshness;
-  refresh materialized view concurrently sku_coverage;
-  refresh materialized view concurrently product_coverage;
-end;
-$$;
+-- Yenileme fonksiyonu (refresh_summaries) tek yerde tanımlıdır: supabase/refresh-fix.sql.

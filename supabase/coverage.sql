@@ -36,12 +36,4 @@ create unique index if not exists idx_skucov_key on sku_coverage (retailer, sku_
 create index if not exists idx_skucov_retailer on sku_coverage (retailer);
 grant select on sku_coverage to anon, authenticated;
 
--- refresh_summaries'i sku_coverage'ı da yenileyecek şekilde güncelle
-create or replace function refresh_summaries() returns void
-language plpgsql security definer as $$
-begin
-  refresh materialized view concurrently weekly_summary;
-  refresh materialized view concurrently data_freshness;
-  refresh materialized view concurrently sku_coverage;
-end;
-$$;
+-- Yenileme fonksiyonu (refresh_summaries) tek yerde tanımlıdır: supabase/refresh-fix.sql.

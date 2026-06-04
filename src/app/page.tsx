@@ -2,16 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { WeeklySummary, Freshness, RETAILERS, fmtDate, fmtDateTime } from "@/lib/format";
+import { WeeklySummary, Freshness, RETAILERS, RETAILER_COLORS, fmtDate, fmtDateTime, fmtPct } from "@/lib/format";
 import { RetailerCard } from "@/components/RetailerCard";
 import { TrendChart } from "@/components/TrendChart";
 import { KpiHero } from "@/components/KpiHero";
 import { Heatmap } from "@/components/Heatmap";
+import { fetchJson } from "@/lib/fetchJson";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<WeeklySummary[]>([]);
   const [freshness, setFreshness] = useState<Freshness[]>([]);
   const [insights, setInsights] = useState<any[]>([]);
+  const [overview, setOverview] = useState<any>(null); // Yönetici özeti: best/worst (Özet sayfasından taşındı)
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [week, setWeek] = useState<string>("");
@@ -51,6 +53,13 @@ export default function DashboardPage() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  // Yönetici özeti (best/worst) — seçili haftaya göre; ikincil veri, hatada ana akışı bozma.
+  useEffect(() => {
+    fetchJson(week ? `/api/overview?week=${encodeURIComponent(week)}` : "/api/overview")
+      .then((d) => setOverview(d))
+      .catch(() => setOverview(null));
+  }, [week]);
 
   const weeks = useMemo(
     () => [...new Set(summary.map((s) => s.week_start))].sort().reverse(),
@@ -95,12 +104,38 @@ export default function DashboardPage() {
               <option key={w} value={w} className="bg-ink-2">{fmtDate(w)}</option>
             ))}
           </select>
+          <a
+            href={`/api/export?week=${encodeURIComponent(week)}`}
+            className="mono text-xs px-4 py-2 rounded-lg bg-neon text-ink font-bold hover:bg-neon-dim transition-colors"
+          >
+            ⬇ Excel rapor indir
+          </a>
         </div>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
         <KpiHero summary={summary} week={week} />
       </motion.div>
+
+      {(overview?.best || overview?.worst) && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
+          className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {overview?.best && (
+            <div className="card p-5 border-l-4" style={{ borderLeftColor: "#1FF80B" }}>
+              <div className="mono text-xs text-txt-dim">HAFTANIN YILDIZI ▲</div>
+              <div className="text-xl font-bold mt-1" style={{ color: RETAILER_COLORS[overview.best.retailer] }}>{overview.best.retailer}</div>
+              <div className="mono text-sm text-neon">{fmtPct(overview.best.wow)} haftalık büyüme</div>
+            </div>
+          )}
+          {overview?.worst && (
+            <div className="card p-5 border-l-4" style={{ borderLeftColor: "#ff5555" }}>
+              <div className="mono text-xs text-txt-dim">DİKKAT ÇEKEN ▼</div>
+              <div className="text-xl font-bold mt-1" style={{ color: RETAILER_COLORS[overview.worst.retailer] }}>{overview.worst.retailer}</div>
+              <div className="mono text-sm text-red-400">{fmtPct(overview.worst.wow)} haftalık değişim</div>
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {topInsights.length > 0 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
