@@ -9,6 +9,7 @@
     "lint": "next lint",
     "seed": "tsx scripts/seed.ts",
     "seed:satode": "tsx scripts/seed-satode.ts",
+    "match:toyzz": "tsx scripts/match-toyzz.ts",
     "test": "tsx scripts/test.ts"
   },
   "dependencies": {

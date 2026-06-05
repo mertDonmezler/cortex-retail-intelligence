@@ -5,9 +5,11 @@ import { SortableTh, SearchBox, MultiChips, RangeMin, useSort, CsvBtn } from "@/
 import { colorOf } from "@/lib/format";
 import { parseProductMeta } from "@/lib/compute";
 
+interface Cand { barkod: string; name: string; score: number; src?: string }
 interface Alias {
   id: number; retailer: string; sku_name: string; barkod: string;
   match_name: string | null; confidence: number | null; status: string;
+  candidates?: Cand[] | null; // auto-öneri için sıralı aday EAN'ler (/eslesme seçimi)
 }
 
 const confColor = (c: number | null) => (c == null ? "#7d927d" : c >= 0.8 ? "#1FF80B" : c >= 0.7 ? "#f8b00b" : "#ff8855");
@@ -38,6 +40,7 @@ export default function EslesmePage() {
   const [busy, setBusy] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [choice, setChoice] = useState<Record<number, string>>({}); // id → seçilen/manuel EAN
 
   // ── İstemci-tarafı analiz kontrolleri ──
   const [retSel, setRetSel] = useState<string[]>([]); // boş = tüm perakendeciler
@@ -53,16 +56,17 @@ export default function EslesmePage() {
   }
   useEffect(load, []);
 
-  async function setStatus(a: Alias, status: "approved" | "rejected" | "suggested") {
+  async function setStatus(a: Alias, status: "approved" | "rejected" | "suggested", override?: { barkod?: string; match_name?: string | null }) {
     setBusy(a.id);
     try {
-      const r = await fetch("/api/alias", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id, status }) });
+      const r = await fetch("/api/alias", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id, status, ...override }) });
       if (!r.ok) throw new Error("HTTP " + r.status);
-      // yerel state güncelle
+      // yerel state güncelle (onayda seçilen aday EAN/ad'ı yansıt)
       setSug((s) => s.filter((x) => x.id !== a.id));
       setApproved((s) => {
         const without = s.filter((x) => x.id !== a.id);
-        return status === "approved" ? [{ ...a, status }, ...without] : without;
+        const merged = { ...a, status, barkod: override?.barkod ?? a.barkod, match_name: override?.match_name ?? a.match_name };
+        return status === "approved" ? [merged, ...without] : without;
       });
       if (status === "suggested") setSug((s) => [{ ...a, status }, ...s].sort((x, y) => (y.confidence ?? 0) - (x.confidence ?? 0)));
       setDirty(true);
@@ -222,7 +226,7 @@ export default function EslesmePage() {
             <CsvBtn filename="cortex-eslesme-oneriler" rows={csvRows} cols={csvCols} />
           </div>
         </div>
-        <p className="mono text-xs text-txt-dim mb-4">Skor = isim örtüşme oranı. Soldaki Toyzz ürünü, sağdaki barkodlu ürünle aynı mı? Onayla ✓ / Reddet ✗</p>
+        <p className="mono text-xs text-txt-dim mb-4">Skor = isim örtüşme oranı. Soldaki Toyzz ürünü için sağdaki açılır listeden doğru barkodlu eşi seç (ya da ✎ manuel EAN gir), sonra Onayla ✓. Yanlışsa Reddet ✗</p>
         {loading ? <div className="mono text-txt-dim animate-pulse py-4">Yükleniyor…</div>
           : sug.length === 0 ? <div className="mono text-sm text-txt-dim py-4">Bekleyen öneri yok. Yeni öneri için <span className="neon-text">npm run match:toyzz</span>.</div>
           : sugSorted.length === 0 ? <div className="mono text-sm text-txt-dim py-4">Filtreyle eşleşen öneri yok. <button type="button" onClick={clearFilters} className="neon-text hover:underline">Filtreyi temizle</button>.</div>
@@ -240,6 +244,10 @@ export default function EslesmePage() {
               <tbody>
                 {sugSorted.map((a) => {
                   const meta = parseProductMeta(a.sku_name);
+                  const cands = a.candidates ?? [];
+                  const chosen = choice[a.id] ?? a.barkod;            // seçili/manuel EAN
+                  const inList = cands.some((c) => c.barkod === chosen);
+                  const chosenName = cands.find((c) => c.barkod === chosen)?.name ?? (chosen === a.barkod ? a.match_name : null);
                   return (
                     <tr key={a.id} className="border-b border-line/40">
                       <td>
@@ -259,14 +267,39 @@ export default function EslesmePage() {
                           </div>
                         )}
                       </td>
-                      <td className="max-w-xs">
-                        <div className="text-sm text-txt-dim truncate" title={(a.match_name ?? "") + " · " + a.barkod}>
-                          {a.match_name}<span className="text-[10px] ml-1 opacity-50">[{a.barkod}]</span>
-                        </div>
+                      <td className="max-w-sm">
+                        {cands.length > 0 ? (
+                          <div className="space-y-1">
+                            <select
+                              value={inList ? chosen : "__m"}
+                              onChange={(e) => setChoice((c) => ({ ...c, [a.id]: e.target.value === "__m" ? "" : e.target.value }))}
+                              title="Doğru eşleşmeyi seç veya manuel EAN gir"
+                              className="mono text-[11px] bg-ink-2 border border-line rounded px-1.5 py-1 w-full text-txt"
+                            >
+                              {cands.map((c) => (
+                                <option key={c.barkod} value={c.barkod}>%{Math.round((c.score ?? 0) * 100)} · {c.name} [{c.barkod}]</option>
+                              ))}
+                              <option value="__m">✎ manuel EAN…</option>
+                            </select>
+                            {!inList && (
+                              <input
+                                value={chosen}
+                                onChange={(e) => setChoice((c) => ({ ...c, [a.id]: e.target.value.replace(/\D/g, "") }))}
+                                placeholder="EAN (8-14 hane)" inputMode="numeric"
+                                className="mono text-[11px] bg-ink-2 border border-line rounded px-1.5 py-1 w-full text-txt"
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-txt-dim truncate" title={(a.match_name ?? "") + " · " + a.barkod}>
+                            {a.match_name}<span className="text-[10px] ml-1 opacity-50">[{a.barkod}]</span>
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div className="flex gap-1 justify-end">
-                          <button disabled={busy === a.id} onClick={() => setStatus(a, "approved")}
+                          <button disabled={busy === a.id || (!inList && !/^\d{8,14}$/.test(chosen))}
+                            onClick={() => setStatus(a, "approved", { barkod: chosen, match_name: chosenName })}
                             className="mono text-xs px-3 py-1.5 rounded bg-neon/15 text-neon border border-neon/30 hover:bg-neon/25 disabled:opacity-40">✓ Onayla</button>
                           <button disabled={busy === a.id} onClick={() => setStatus(a, "rejected")}
                             className="mono text-xs px-3 py-1.5 rounded border border-line text-txt-dim hover:text-red-400 hover:border-red-400/40 disabled:opacity-40">✗</button>

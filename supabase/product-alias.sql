@@ -11,6 +11,7 @@ create table if not exists product_alias (
   confidence  numeric,              -- overlap skoru (auto için)
   status      text not null default 'suggested',  -- suggested | approved | rejected
   source      text not null default 'auto',        -- auto | master | manual
+  candidates  jsonb,                -- auto-öneri için sıralı aday EAN listesi [{barkod,name,score,src}] (/eslesme seçimi)
   created_at  timestamptz default now(),
   updated_at  timestamptz default now(),
   unique (retailer, sku_name)

@@ -10,7 +10,7 @@ export async function GET() {
   try {
     const { data, error } = await supabase
       .from("product_alias")
-      .select("id, retailer, sku_name, barkod, match_name, confidence, status")
+      .select("id, retailer, sku_name, barkod, match_name, confidence, status, candidates")
       .order("confidence", { ascending: false });
     if (error) throw error;
     const all = data ?? [];
@@ -38,14 +38,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, refreshed: true });
     }
 
-    const { id, status } = body;
+    const { id, status, barkod, match_name } = body;
     if (!id || !["approved", "rejected", "suggested"].includes(status)) {
       return NextResponse.json({ error: "id ve geçerli status gerekli" }, { status: 400 });
     }
-    const { error } = await db
-      .from("product_alias")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    // Onaylarken /eslesme'den seçilen/düzeltilen aday EAN'i kabul et (8-14 hane).
+    const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+    if (typeof barkod === "string" && /^\d{8,14}$/.test(barkod)) patch.barkod = barkod;
+    if (typeof match_name === "string" && match_name.trim()) patch.match_name = match_name.trim();
+    const { error } = await db.from("product_alias").update(patch).eq("id", id);
     if (error) throw error;
     return NextResponse.json({ ok: true });
   } catch (e: any) {
