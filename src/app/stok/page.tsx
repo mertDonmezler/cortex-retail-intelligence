@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { fmtInt, RETAILERS, RETAILER_COLORS } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetchJson";
+import { parseProductMeta } from "@/lib/compute";
+import { SortableTh, MultiChips, RangeMin, useSort, type SortDir } from "@/components/Controls";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   kritik: { label: "Az stok", cls: "text-red-300 bg-red-500/15 border-red-500/40" },
@@ -16,6 +18,8 @@ const col = (r: string) => RETAILER_COLORS[r] ?? "#7d927d";
 
 type StatusTab = "kritik" | "fazla" | "saglikli" | "all";
 type View = "durum" | "sure" | "olu";
+// Durum tablosunda sıralanabilir sayısal kolonlar (alan adları item üzerinde birebir).
+type DurumSortKey = "avg_weekly" | "last_stock" | "coverage";
 
 // Üç görünüm tek "Stok" merkezinde:
 //  • durum → ağ geneli birleşik stok durumu (firma + az/fazla/sağlıklı filtresi)
@@ -42,24 +46,86 @@ export default function StokPage() {
   const [firms, setFirms] = useState<string[]>([]); // seçili firmalar (varsayılan: hepsi)
   const [status, setStatus] = useState<StatusTab>("kritik"); // varsayılan: az stok uyarıları
   const [search, setSearch] = useState("");
+  // Ürün kimliği filtreleri (sku_name'den parseProductMeta ile çıkarılır) — hepsi boş = kısıt yok
+  const [brands, setBrands] = useState<string[]>([]);
+  const [teams, setTeams] = useState<string[]>([]);
+  const [types, setTypes] = useState<string[]>([]);
+  // Coverage (kaç hafta yeter) min/max — 0 = alt sınır yok, "" = üst sınır yok
+  const [covMin, setCovMin] = useState(0);
+  const [covMax, setCovMax] = useState<number | "">("");
+  // Kolon sıralaması — null iken doğal (durum önceliği) sıra korunur
+  const [sortKey, setSortKey] = useState<DurumSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const allFirms: string[] = data?.firms ?? [];
 
+  // Her satıra ürün kimliğini (brand/team/type) bir kez ekle — chip seçenekleri ve filtre buradan.
+  const enriched = useMemo(
+    () =>
+      (data?.items ?? []).map((i: any) => {
+        const m = parseProductMeta(String(i.sku_name ?? ""));
+        return { ...i, _brand: m.brand, _team: m.team, _type: m.type };
+      }),
+    [data]
+  );
+
+  // Chip seçenekleri yalnızca seçili firmalardaki ürünlerden türesin (boş seçenek gösterme).
+  const metaOptions = useMemo(() => {
+    const b = new Set<string>(), t = new Set<string>(), ty = new Set<string>();
+    for (const i of enriched) {
+      if (!firms.includes(i.retailer)) continue;
+      b.add(i._brand); t.add(i._team); ty.add(i._type);
+    }
+    const srt = (s: Set<string>) => [...s].sort((x, y) => x.localeCompare(y, "tr"));
+    return { brands: srt(b), teams: srt(t), types: srt(ty) };
+  }, [enriched, firms]);
+
+  // Firma seçimi değişince artık görünmeyen meta seçimlerini ayıkla (gizli ama aktif kalmasın).
+  useEffect(() => {
+    setBrands((p) => p.filter((x) => metaOptions.brands.includes(x)));
+    setTeams((p) => p.filter((x) => metaOptions.teams.includes(x)));
+    setTypes((p) => p.filter((x) => metaOptions.types.includes(x)));
+  }, [metaOptions]);
+
   const counts = useMemo(() => {
-    const sel = (data?.items ?? []).filter((i: any) => firms.includes(i.retailer));
+    const sel = enriched.filter((i: any) => firms.includes(i.retailer));
     return {
       kritik: sel.filter((i: any) => i.status === "kritik").length,
       fazla: sel.filter((i: any) => i.status === "fazla").length,
       saglikli: sel.filter((i: any) => i.status === "saglikli").length,
     };
-  }, [data, firms]);
+  }, [enriched, firms]);
 
   const items = useMemo(() => {
-    let arr = (data?.items ?? []).filter((i: any) => firms.includes(i.retailer));
+    let arr = enriched.filter((i: any) => firms.includes(i.retailer));
     if (status !== "all") arr = arr.filter((i: any) => i.status === status);
+    if (brands.length) arr = arr.filter((i: any) => brands.includes(i._brand));
+    if (teams.length) arr = arr.filter((i: any) => teams.includes(i._team));
+    if (types.length) arr = arr.filter((i: any) => types.includes(i._type));
+    // Coverage aralığı: null (satmıyor) coverage'ı yalnızca alt sınır 0 iken tut.
+    if (covMin > 0 || covMax !== "") {
+      arr = arr.filter((i: any) => {
+        if (i.coverage == null) return covMin <= 0 && covMax === "";
+        if (i.coverage < covMin) return false;
+        if (covMax !== "" && i.coverage > covMax) return false;
+        return true;
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       arr = arr.filter((i: any) => String(i.sku_name).toLowerCase().includes(q) || String(i.barkod ?? "").includes(q));
+    }
+    // Kolon sıralaması seçiliyse onu uygula; değilse doğal durum-önceliği sırası.
+    if (sortKey) {
+      const f = sortDir === "asc" ? 1 : -1;
+      return [...arr].sort((a: any, b: any) => {
+        const av = a[sortKey], bv = b[sortKey];
+        // null coverage daima sona (yönden bağımsız).
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return f * (av - bv);
+      });
     }
     const ord: Record<string, number> = { kritik: 0, fazla: 1, saglikli: 2 };
     return [...arr].sort((a: any, b: any) => {
@@ -68,11 +134,39 @@ export default function StokPage() {
         ? (a.coverage ?? 0) - (b.coverage ?? 0)
         : (b.coverage ?? 1e9) - (a.coverage ?? 1e9);
     });
-  }, [data, firms, status, search]);
+  }, [enriched, firms, status, brands, teams, types, covMin, covMax, search, sortKey, sortDir]);
 
   function toggleFirm(f: string) {
     setFirms((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]));
   }
+  function toggleIn(setter: React.Dispatch<React.SetStateAction<string[]>>, v: string) {
+    setter((p) => (p.includes(v) ? p.filter((x) => x !== v) : [...p, v]));
+  }
+  function toggleDurumSort(k: string) {
+    const key = k as DurumSortKey;
+    if (sortKey === key) {
+      // 3. tıkta sıralamayı sıfırla → doğal durum önceliği geri gelir.
+      if (sortDir === "asc") { setSortKey(null); return; }
+      setSortDir("asc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc"); // sayısal kolonlar: önce büyükten küçüğe
+    }
+  }
+
+  // İçerik filtresi aktif mi? (firma + durum dışındaki "ekstra" filtreler) — temizle butonu için.
+  const durumFiltered =
+    brands.length > 0 || teams.length > 0 || types.length > 0 ||
+    covMin > 0 || covMax !== "" || search.trim() !== "";
+  function clearDurumFilters() {
+    setBrands([]); setTeams([]); setTypes([]); setCovMin(0); setCovMax(""); setSearch("");
+  }
+  // "X / Y" sayacı için: firma+durum kapsamındaki ekstra-filtresiz toplam.
+  const scopeTotal = useMemo(() => {
+    let arr = enriched.filter((i: any) => firms.includes(i.retailer));
+    if (status !== "all") arr = arr.filter((i: any) => i.status === status);
+    return arr.length;
+  }, [enriched, firms, status]);
 
   function exportDurumCsv() {
     if (!items.length) return;
@@ -163,6 +257,40 @@ export default function StokPage() {
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 ürün / barkod…"
                 className="card mono text-sm px-3 py-1.5 bg-ink-2 outline-none focus:border-neon flex-1 min-w-48" />
             </div>
+
+            {/* Ürün kimliği (marka / takım / tip) — sku adından çıkarılır */}
+            <div className="border-t border-line/60 pt-3 space-y-2">
+              {metaOptions.brands.length > 1 && (
+                <MultiChips label="Marka:" options={metaOptions.brands} selected={brands}
+                  onToggle={(v) => toggleIn(setBrands, v)} onNone={brands.length ? () => setBrands([]) : undefined} />
+              )}
+              {metaOptions.teams.length > 1 && (
+                <MultiChips label="Takım:" options={metaOptions.teams} selected={teams}
+                  onToggle={(v) => toggleIn(setTeams, v)} onNone={teams.length ? () => setTeams([]) : undefined} />
+              )}
+              {metaOptions.types.length > 1 && (
+                <MultiChips label="Tip:" options={metaOptions.types} selected={types}
+                  onToggle={(v) => toggleIn(setTypes, v)} onNone={types.length ? () => setTypes([]) : undefined} />
+              )}
+              <div className="flex items-center gap-4 flex-wrap pt-1">
+                <span className="mono text-xs text-txt-dim">Kaç hafta yeter:</span>
+                <RangeMin label="min" value={covMin} onChange={setCovMin} suffix="hf" step={1} />
+                <label className="mono text-xs text-txt-dim flex items-center gap-2">
+                  maks
+                  <input type="number" min={0} step={1} value={covMax}
+                    onChange={(e) => { const v = e.target.value; setCovMax(v === "" ? "" : Math.max(0, Number(v) || 0)); }}
+                    placeholder="∞"
+                    className="w-20 mono text-sm px-2 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon text-txt" />
+                  <span className="text-txt-dim">hf</span>
+                </label>
+                {durumFiltered && (
+                  <button onClick={clearDurumFilters}
+                    className="mono text-[11px] text-txt-dim hover:text-neon transition-colors">
+                    ✕ filtreyi temizle
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {loading ? (
@@ -171,16 +299,21 @@ export default function StokPage() {
             <div className="card p-6 overflow-x-auto">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold">{status === "kritik" ? "Az stok (sipariş gerekebilir)" : status === "fazla" ? "Fazla stok (kampanya)" : status === "saglikli" ? "Sağlıklı" : "Tüm stok durumu"}</h2>
-                <span className="mono text-xs text-txt-dim">{items.length} kalem</span>
+                <span className="mono text-xs text-txt-dim">
+                  {durumFiltered ? `${items.length} / ${scopeTotal}` : `${items.length}`} kalem
+                </span>
               </div>
               {items.length ? (
                 <table>
                   <thead>
                     <tr>
                       <th>#</th><th>Firma</th><th>Ürün</th>
-                      <th className="text-right">Haftalık Ort.</th>
-                      <th className="text-right">Stok</th>
-                      <th className="text-right">Kaç Hafta Yeter</th>
+                      <SortableTh label="Haftalık Ort." sortKey="avg_weekly" align="right"
+                        active={sortKey === "avg_weekly"} dir={sortDir} onClick={toggleDurumSort} />
+                      <SortableTh label="Stok" sortKey="last_stock" align="right"
+                        active={sortKey === "last_stock"} dir={sortDir} onClick={toggleDurumSort} />
+                      <SortableTh label="Kaç Hafta Yeter" sortKey="coverage" align="right"
+                        active={sortKey === "coverage"} dir={sortDir} onClick={toggleDurumSort} />
                       <th>Durum</th>
                     </tr>
                   </thead>
@@ -204,7 +337,13 @@ export default function StokPage() {
                   </tbody>
                 </table>
               ) : (
-                <div className="mono text-sm text-txt-dim py-4">Bu filtrede kalem yok.</div>
+                <div className="mono text-sm text-txt-dim py-4">
+                  {scopeTotal > 0 && durumFiltered ? (
+                    <>Bu filtrede kalem yok. <button onClick={clearDurumFilters} className="text-neon hover:underline">Filtreyi temizle</button> ({scopeTotal} kalem var).</>
+                  ) : (
+                    "Bu seçimde kalem yok."
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -304,8 +443,8 @@ function CoverageView() {
             <span className="mono text-[11px] text-txt-dim">mağaza kırılımı yok (firma geneli)</span>
           )}
         </div>
-        <button onClick={exportCsv}
-          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors">
+        <button onClick={exportCsv} disabled={shown.length === 0}
+          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed">
           ⬇ CSV
         </button>
       </div>
@@ -317,8 +456,8 @@ function CoverageView() {
 
       {err && <div className="card p-4 border-red-500/40 text-red-400 mono text-sm">Veri alınamadı: {err}</div>}
 
-      {/* Özet kartları (tıkla → filtrele) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Özet kartları (tıkla → filtrele) — yeni kapsam yüklenirken eski sayılar soluk */}
+      <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-50" : "opacity-100"}`}>
         <SummaryCard label="TÜM SKU" value={data?.summary?.toplam ?? 0} active={filter === "all"} onClick={() => setFilter("all")} color="#7d927d" />
         <SummaryCard label="AZ STOK · SİPARİŞ" value={data?.summary?.kritik ?? 0} active={filter === "kritik"} onClick={() => setFilter("kritik")} color="#ff5555" />
         <SummaryCard label="SAĞLIKLI" value={data?.summary?.saglikli ?? 0} active={filter === "saglikli"} onClick={() => setFilter("saglikli")} color="#1FF80B" />
@@ -326,11 +465,19 @@ function CoverageView() {
       </div>
 
       <div className="card p-6 overflow-x-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold">{filter === "all" ? "Tüm SKU" : COV_META[filter].label}</h2>
+          <span className="mono text-xs text-txt-dim">
+            {filter === "all" ? `${fmtInt(shown.length)}` : `${fmtInt(shown.length)} / ${fmtInt(skus.length)}`} SKU
+          </span>
+        </div>
         {loading && !data ? (
           <div className="text-center mono text-txt-dim animate-pulse py-6">Yükleniyor…</div>
         ) : shown.length === 0 ? (
           <div className="text-center mono text-sm text-txt-dim py-6">
-            {skus.length === 0 ? "Bu seçim için veri yok." : "Bu filtrede SKU yok."}
+            {skus.length === 0 ? "Bu seçim için veri yok." : (
+              <>Bu filtrede SKU yok. <button onClick={() => setFilter("all")} className="text-neon hover:underline">Tümünü göster</button> ({fmtInt(skus.length)} SKU var).</>
+            )}
           </div>
         ) : (
           <table>
@@ -464,6 +611,11 @@ function DeadStockView({ products, loading }: { products: DSProduct[]; loading: 
   }, [products, q, retailer, minWeeks, includeNeverSold, sortKey, sortDir]);
 
   const totalUnits = shown.reduce((a, r) => a + r.stock, 0);
+  // Seçili kapsamda (firma/ağ) stoklu ürün sayısı — "X / Y" sayacının paydası.
+  const scopeCount = useMemo(() => {
+    if (!retailer) return products.filter((p) => p.total_stock > 0).length;
+    return products.filter((p) => (p.firms.find((f) => f.retailer === retailer)?.stock ?? 0) > 0).length;
+  }, [products, retailer]);
 
   function exportCsv() {
     downloadCsv(
@@ -493,8 +645,8 @@ function DeadStockView({ products, loading }: { products: DSProduct[]; loading: 
         <p className="text-txt-dim mono text-sm">
           Stok ÷ haftalık satış hızı &gt; {minWeeks} hafta · {retailer || "tüm firmalar birleşik"} · hiç satmayan = ∞ · ürün satırına tıkla → firma kırılımı
         </p>
-        <button onClick={exportCsv}
-          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors">
+        <button onClick={exportCsv} disabled={shown.length === 0}
+          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed">
           ⬇ CSV
         </button>
       </div>
@@ -503,7 +655,10 @@ function DeadStockView({ products, loading }: { products: DSProduct[]; loading: 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="card p-5">
           <div className="mono text-[10px] text-txt-dim tracking-wider">ÖLÜ STOK ÜRÜNÜ</div>
-          <div className="text-3xl font-bold mono mt-1 neon-text">{fmtInt(shown.length)}</div>
+          <div className="text-3xl font-bold mono mt-1 neon-text">
+            {fmtInt(shown.length)}
+            <span className="text-sm text-txt-dim"> / {fmtInt(scopeCount)}</span>
+          </div>
         </div>
         <div className="card p-5">
           <div className="mono text-[10px] text-txt-dim tracking-wider">TAKILI STOK</div>
@@ -540,7 +695,13 @@ function DeadStockView({ products, loading }: { products: DSProduct[]; loading: 
         {loading ? (
           <div className="text-center mono text-txt-dim animate-pulse py-6">Yükleniyor…</div>
         ) : shown.length === 0 ? (
-          <div className="text-center mono text-sm text-txt-dim py-6">Bu filtrede ölü stok yok.</div>
+          <div className="text-center mono text-sm text-txt-dim py-6">
+            {scopeCount > 0 ? (
+              <>Bu filtrede ölü stok yok. <button onClick={() => { setQ(""); setMinWeeks(0); setIncludeNeverSold(true); }} className="text-neon hover:underline">Filtreyi gevşet</button> ({fmtInt(scopeCount)} stoklu ürün var).</>
+            ) : (
+              "Bu kapsamda stoklu ürün yok."
+            )}
+          </div>
         ) : (
           <table>
             <thead>

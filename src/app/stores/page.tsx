@@ -1,21 +1,49 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { RETAILERS, fmtInt, fmtMoney, fmtDate } from "@/lib/format";
-import { downloadCsv } from "@/lib/csv";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { RETAILERS, fmtInt, fmtMoney, fmtDate, colorOf } from "@/lib/format";
+import {
+  SortableTh,
+  SearchBox,
+  MultiChips,
+  RangeMin,
+  CsvBtn,
+  StatCard,
+  useSort,
+} from "@/components/Controls";
 import { fetchJson } from "@/lib/fetchJson";
 
 // Mağaza-bazlı veri sağlayan perakendeciler (DR eski format, Toyzz mağaza-bazlıysa)
+
+interface StoreRow {
+  store: string;
+  sales_qty: number;
+  sales_value: number;
+  stock_qty: number;
+  sku_count: number;
+}
+
+// Şube adının ilk kelimesi/ön eki → şehir/grup. "İSTANBUL CEVAHİR" → "İSTANBUL".
+// Çoğu zincir mağaza adı şehir/bölge ile başladığı için bu kırılım pratik bir
+// coğrafi/grup süzgeci verir; tek kelimelik adlar kendi grubunu oluşturur.
+function storeGroup(store: string): string {
+  const s = String(store ?? "").trim();
+  if (!s) return "—";
+  const first = s.split(/[\s/_\-]+/)[0];
+  return (first || s).toLocaleUpperCase("tr-TR");
+}
+
 export default function StoresPage() {
   const [retailer, setRetailer] = useState("DR");
   const [week, setWeek] = useState<string>("");
   const [weeks, setWeeks] = useState<string[]>([]);
-  const [stores, setStores] = useState<any[]>([]);
+  const [stores, setStores] = useState<StoreRow[]>([]);
   const [storeLevel, setStoreLevel] = useState(true);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
   const [search, setSearch] = useState("");
+  const [minSales, setMinSales] = useState(0);
+  const [groups, setGroups] = useState<string[]>([]); // seçili şehir/grup süzgeci ([]=tümü)
   const [openStore, setOpenStore] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, any[]>>({});
   const [detLoading, setDetLoading] = useState<string | null>(null);
@@ -59,12 +87,65 @@ export default function StoresPage() {
   }, [retailer, week]);
 
   useEffect(() => { setWeek(""); }, [retailer]);
+  // Perakendeci/hafta değişince istemci-tarafı süzgeçleri sıfırla (eski grup
+  // seçimi yeni veride anlamsız olabilir).
+  useEffect(() => { setGroups([]); setMinSales(0); setSearch(""); }, [retailer, week]);
 
-  const rows = stores ?? [];
-  const filtered = rows.filter((s) => String(s?.store ?? "").toLowerCase().includes(search.toLowerCase()));
-  const totalQty = rows.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
-  const totalVal = rows.reduce((a, s) => a + (s?.sales_value ?? 0), 0);
+  const rows: StoreRow[] = stores ?? [];
+  const hasValue = rows.some((s) => (s?.sales_value ?? 0) > 0);
+
+  // Mevcut veriden çıkan şehir/grup seçenekleri (satışa göre azalan, sabit sıra).
+  const groupOptions = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of rows) {
+      const g = storeGroup(s?.store ?? "");
+      m.set(g, (m.get(g) ?? 0) + (s?.sales_qty ?? 0));
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+  }, [rows]);
+
+  // Süzgeç zinciri: arama → min satış → şehir/grup. (Sıralama en sonda.)
+  const q = search.trim().toLocaleLowerCase("tr-TR");
+  const groupSet = new Set(groups);
+  const filtered = useMemo(() => rows.filter((s) => {
+    const store = String(s?.store ?? "");
+    if (q && !store.toLocaleLowerCase("tr-TR").includes(q)) return false;
+    if ((s?.sales_qty ?? 0) < minSales) return false;
+    if (groupSet.size > 0 && !groupSet.has(storeGroup(store))) return false;
+    return true;
+  }), [rows, q, minSales, groups]);
+
+  const { sorted, sortKey, dir, toggle } = useSort<StoreRow>(filtered, "sales_qty", "desc");
+
+  // KPI'lar görünür (süzülmüş) sete göre — süzgeç varken anlam korunur.
+  const totalQty = filtered.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
+  const totalVal = filtered.reduce((a, s) => a + (s?.sales_value ?? 0), 0);
+  const totalStock = filtered.reduce((a, s) => a + (s?.stock_qty ?? 0), 0);
+  const netQty = rows.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
+  const filterActive = filtered.length !== rows.length;
+  // Aktif istemci-tarafı süzgeç sayısı (arama + min satış + şehir/grup seçimi).
+  const activeFilters = (q ? 1 : 0) + (minSales > 0 ? 1 : 0) + groups.length;
+  const clearFilters = () => { setSearch(""); setMinSales(0); setGroups([]); };
+  // Satış payı bar'ı tüm-ağ maksimumuna göre (süzgeçten bağımsız sabit ölçek).
   const maxQty = Math.max(...rows.map((s) => s?.sales_qty ?? 0), 1);
+
+  const csvCols = [
+    { key: "store" as const, label: "Mağaza" },
+    { key: "group" as const, label: "Şehir/Grup" },
+    { key: "sales_qty" as const, label: "Satış" },
+    { key: "sales_value" as const, label: "Ciro (net TL)" },
+    { key: "stock_qty" as const, label: "Stok" },
+    { key: "sku_count" as const, label: "SKU" },
+  ];
+  // Görünür + sıralı seti, türetilmiş grup kolonuyla dışa aktar.
+  const csvRows = sorted.map((s) => ({
+    store: s.store,
+    group: storeGroup(s.store),
+    sales_qty: s.sales_qty,
+    sales_value: s.sales_value,
+    stock_qty: s.stock_qty,
+    sku_count: s.sku_count,
+  }));
 
   return (
     <div className="space-y-6">
@@ -73,14 +154,12 @@ export default function StoresPage() {
           <h1 className="text-3xl font-bold tracking-tight">Mağaza <span className="neon-text">Zekası</span></h1>
           <p className="text-txt-dim mono text-sm mt-1">Şube bazlı satış & stok performansı</p>
         </div>
-        <button onClick={() => downloadCsv(`cortex-magaza-${retailer}-${week}`, stores, [
-          { key: "store", label: "Mağaza" }, { key: "sales_qty", label: "Satış" },
-          { key: "sales_value", label: "TL" }, { key: "stock_qty", label: "Stok" }, { key: "sku_count", label: "SKU" },
-        ])}
-          disabled={!stores.length}
-          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40">
-          ⬇ CSV indir
-        </button>
+        <CsvBtn
+          filename={`cortex-magaza-${retailer}-${week || "tum"}`}
+          rows={csvRows}
+          cols={csvCols}
+          label="⬇ CSV indir"
+        />
       </div>
 
       <div className="card p-4 flex flex-wrap items-end gap-4">
@@ -102,10 +181,42 @@ export default function StoresPage() {
         )}
         <div className="flex-1 min-w-48">
           <label className="mono text-xs text-txt-dim block mb-1">Mağaza ara</label>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 şube adı…"
-            className="card mono text-sm px-3 py-2 bg-ink-2 outline-none focus:border-neon w-full" />
+          <SearchBox value={search} onChange={setSearch} placeholder="🔍 şube adı…" />
         </div>
+        <div>
+          <label className="mono text-xs text-txt-dim block mb-1">Eşik</label>
+          <div className="h-[38px] flex items-center">
+            <RangeMin label="min satış" value={minSales} onChange={setMinSales} suffix="adet" step={10} />
+          </div>
+        </div>
+        {activeFilters > 0 && (
+          <div className="h-[38px] flex items-center">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+            >
+              ✕ filtreleri temizle ({activeFilters})
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Şehir/şube-grubu süzgeci — yalnızca >1 grup varken anlamlı */}
+      {!loading && !err && storeLevel && groupOptions.length > 1 && (
+        <div className="card p-3">
+          <MultiChips
+            label="Şehir/grup:"
+            options={groupOptions}
+            selected={groups}
+            onToggle={(g) =>
+              setGroups((p) => (p.includes(g) ? p.filter((x) => x !== g) : [...p, g]))
+            }
+            onAll={() => setGroups([])}
+            onNone={() => setGroups([...groupOptions])}
+          />
+        </div>
+      )}
 
       {loading ? (
         <div className="card p-10 text-center mono text-txt-dim animate-pulse">Yükleniyor…</div>
@@ -128,34 +239,79 @@ export default function StoresPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="card p-4"><div className="mono text-[10px] text-txt-dim">MAĞAZA</div><div className="text-2xl font-bold mono neon-text">{rows.length}</div></div>
-            <div className="card p-4"><div className="mono text-[10px] text-txt-dim">TOPLAM SATIŞ</div><div className="text-2xl font-bold mono">{fmtInt(totalQty)}</div></div>
-            <div className="card p-4"><div className="mono text-[10px] text-txt-dim">TOPLAM TL</div><div className="text-2xl font-bold mono">{totalVal > 0 ? fmtMoney(totalVal) : "—"}</div></div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard
+              label="MAĞAZA"
+              value={fmtInt(filtered.length)}
+              sub={filterActive ? `${rows.length} mağazadan süzüldü` : "tümü"}
+            />
+            <StatCard
+              label="TOPLAM SATIŞ"
+              value={fmtInt(totalQty)}
+              color="#e8ffe8"
+              sub={filterActive && netQty > 0 ? `ağın %${((totalQty / netQty) * 100).toFixed(0)}'ı` : "adet"}
+            />
+            <StatCard
+              label="TOPLAM CİRO (NET)"
+              value={totalVal > 0 ? fmtMoney(totalVal) : "—"}
+              color={colorOf(retailer)}
+              sub={!hasValue ? "bu perakendeci ciro göndermiyor" : "net kazanç"}
+            />
+            <StatCard
+              label="TOPLAM STOK"
+              value={fmtInt(totalStock)}
+              sub="adet"
+            />
           </div>
 
           <div className="card p-6 overflow-x-auto">
             <table>
-              <thead><tr><th>#</th><th>Mağaza</th><th>Satış</th><th>Pay</th><th>TL</th><th>Stok</th><th>SKU</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <SortableTh label="Mağaza" sortKey="store" active={sortKey === "store"} dir={dir} onClick={toggle} />
+                  <SortableTh label="Satış" sortKey="sales_qty" active={sortKey === "sales_qty"} dir={dir} onClick={toggle} align="right" />
+                  <th>Pay</th>
+                  <SortableTh label="Ciro (net)" sortKey="sales_value" active={sortKey === "sales_value"} dir={dir} onClick={toggle} align="right" />
+                  <SortableTh label="Stok" sortKey="stock_qty" active={sortKey === "stock_qty"} dir={dir} onClick={toggle} align="right" />
+                  <SortableTh label="SKU" sortKey="sku_count" active={sortKey === "sku_count"} dir={dir} onClick={toggle} align="right" />
+                </tr>
+              </thead>
               <tbody>
-                {filtered.map((s, i) => {
+                {sorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center mono text-txt-dim py-8">
+                      Süzgeçlere uyan mağaza yok. Aramayı, min satışı veya şehir/grup seçimini gevşet.
+                    </td>
+                  </tr>
+                ) : sorted.map((s, i) => {
                   const store = s?.store ?? "—";
                   const isOpen = openStore === store;
                   const skus = detail[store];
                   return (
                     <Fragment key={store + i}>
-                      <tr onClick={() => openStoreDetail(store)} className="cursor-pointer hover:bg-neon/5">
+                      <tr
+                        onClick={() => openStoreDetail(store)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openStoreDetail(store); }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isOpen}
+                        title={isOpen ? "kapat" : "ürün kırılımını aç"}
+                        className="cursor-pointer hover:bg-neon/5 focus:outline-none focus:bg-neon/10"
+                      >
                         <td className="mono text-txt-dim">{i + 1}</td>
                         <td className="font-medium">{isOpen ? "▼ " : "▶ "}{store}</td>
-                        <td className="mono">{fmtInt(s?.sales_qty ?? 0)}</td>
+                        <td className="mono text-right">{fmtInt(s?.sales_qty ?? 0)}</td>
                         <td className="w-32">
                           <div className="h-1.5 rounded-full bg-ink-3 overflow-hidden">
                             <div className="h-full bg-neon rounded-full" style={{ width: `${((s?.sales_qty ?? 0) / maxQty) * 100}%` }} />
                           </div>
                         </td>
-                        <td className="mono">{(s?.sales_value ?? 0) > 0 ? fmtMoney(s.sales_value) : "—"}</td>
-                        <td className="mono">{fmtInt(s?.stock_qty ?? 0)}</td>
-                        <td className="mono text-txt-dim">{s?.sku_count ?? 0}</td>
+                        <td className="mono text-right">{(s?.sales_value ?? 0) > 0 ? fmtMoney(s.sales_value) : "—"}</td>
+                        <td className="mono text-right">{fmtInt(s?.stock_qty ?? 0)}</td>
+                        <td className="mono text-right text-txt-dim">{s?.sku_count ?? 0}</td>
                       </tr>
                       {isOpen && (
                         <tr>
@@ -172,7 +328,7 @@ export default function StoresPage() {
                                   <tbody>
                                     {skus.slice(0, 50).map((k: any, j: number) => (
                                       <tr key={j}>
-                                        <td className="max-w-[360px] truncate" title={k.sku_name}>{k.sku_name}</td>
+                                        <td className="max-w-[360px] truncate" title={(k.barkod ? k.barkod + " · " : "") + k.sku_name}>{k.sku_name}</td>
                                         <td className="mono text-right">{fmtInt(k.sales_qty)}</td>
                                         <td className="mono text-right text-txt-dim">{fmtInt(k.stock_qty)}</td>
                                         <td className="mono text-right text-txt-dim">{k.sales_value > 0 ? fmtMoney(k.sales_value) : "—"}</td>
@@ -191,7 +347,10 @@ export default function StoresPage() {
                 })}
               </tbody>
             </table>
-            <div className="mono text-xs text-txt-dim mt-3">{filtered.length} / {rows.length} mağaza</div>
+            <div className="mono text-xs text-txt-dim mt-3">
+              {fmtInt(sorted.length)} / {fmtInt(rows.length)} mağaza
+              {filterActive ? " (süzüldü)" : ""}
+            </div>
           </div>
         </>
       )}
