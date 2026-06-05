@@ -29,7 +29,7 @@ function isActive(pathname: string, href: string): boolean {
 export function Nav() {
   const pathname = usePathname();
   return (
-    <nav className="flex gap-0.5 flex-wrap justify-end">
+    <nav className="flex gap-0.5 flex-1 min-w-0 flex-nowrap overflow-x-auto md:flex-wrap md:justify-end md:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {NAV.map((n) => {
         const active = isActive(pathname, n.href);
         return (

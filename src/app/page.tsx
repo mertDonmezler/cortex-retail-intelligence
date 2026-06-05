@@ -8,6 +8,7 @@ import { TrendChart } from "@/components/TrendChart";
 import { KpiHero } from "@/components/KpiHero";
 import { Heatmap } from "@/components/Heatmap";
 import { MultiChips, SegTabs } from "@/components/Controls";
+import { HealthBanner } from "@/components/HealthBanner";
 import { fetchJson } from "@/lib/fetchJson";
 
 export default function DashboardPage() {
@@ -150,6 +151,9 @@ export default function DashboardPage() {
           </a>
         </div>
       </motion.div>
+
+      {/* Veri Sağlığı bekçisi — sorun varsa açılır kart, sağlıklıysa ince satır (yeni sayfa yok). */}
+      <HealthBanner />
 
       {/* İSTEMCİ TARAFI: perakendeci görünürlük filtresi — kartları, ağ payını ve KPI deltalarını süzer. */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.04 }}

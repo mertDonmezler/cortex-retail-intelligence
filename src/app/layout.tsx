@@ -22,8 +22,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <header className="border-b border-line sticky top-0 z-50 backdrop-blur-md bg-ink/80">
-          <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3 group">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+            <Link href="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
               <svg width="26" height="26" viewBox="0 0 32 32" className="shrink-0">
                 <path d="M16 2 L28 9 V23 L16 30 L4 23 V9 Z" fill="none"
                   stroke="#1FF80B" strokeWidth="1.5" opacity="0.4" />
@@ -38,13 +38,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </svg>
               <div className="leading-none">
                 <div className="font-bold text-lg tracking-[0.2em] neon-text">CORTEX</div>
-                <div className="mono text-[9px] text-txt-dim tracking-wider mt-0.5">MYTHOS RETAIL INTELLIGENCE · UNHOLY LABS</div>
+                <div className="mono text-[9px] text-txt-dim tracking-wider mt-0.5 hidden sm:block">MYTHOS RETAIL INTELLIGENCE · UNHOLY LABS</div>
               </div>
             </Link>
             <Nav />
           </div>
         </header>
-        <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">{children}</main>
         <footer className="border-t border-line mt-16">
           <div className="max-w-7xl mx-auto px-6 py-6 mono text-xs text-txt-dim space-y-3">
             <div className="flex justify-between flex-wrap gap-2">
