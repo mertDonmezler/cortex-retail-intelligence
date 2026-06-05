@@ -14,14 +14,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "retailer ve week gerekli" }, { status: 400 });
   }
   try {
-    // SKU bazında topla (mağaza-bazlı ise mağazaları toplar)
+    // sku_weekly: mağaza boyutu çökertilmiş SKU-hafta matview'i. Eski mağaza-bazlı
+    // haftalarda fact_weekly on binlerce satır döndürürken bu birkaç yüz satır.
     const data = await fetchAllRows((from, to) =>
       supabase
-        .from("fact_weekly")
+        .from("sku_weekly")
         .select("sku_name, sales_qty")
         .eq("retailer", retailer)
         .eq("week_start", week)
-        .order("id")
+        .order("sku_name")
         .range(from, to)
     );
 

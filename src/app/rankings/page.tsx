@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { fmtInt, fmtMoney, fmtPct, fmtDate, RETAILER_COLORS } from "@/lib/format";
-import { downloadCsv } from "@/lib/csv";
+import { fmtInt, fmtMoney, fmtPct, fmtDate, RETAILER_COLORS, colorOf } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseProductMeta } from "@/lib/compute";
 import {
@@ -18,7 +17,6 @@ import {
 } from "@/components/Controls";
 
 const COLORS = RETAILER_COLORS;
-const colorOf = (r: string) => RETAILER_COLORS[r] ?? "#7d927d";
 
 type Tab = "top" | "risers" | "fallers" | "categories";
 type CatDim = "brand" | "team" | "type";

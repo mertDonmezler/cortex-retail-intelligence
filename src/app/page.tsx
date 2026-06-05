@@ -26,20 +26,10 @@ export default function DashboardPage() {
 
   useEffect(() => {
     Promise.all([
-      // Ana veri: 500 / JSON-olmayan yanit render'i cokertmesin diye r.ok + d.error kontrolu
-      fetch("/api/dashboard").then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatasi " + r.status));
-        return d;
-      }),
-      // Insights ikincil: hatada bos diziye dus, ana akisi bozma
-      fetch("/api/insights")
-        .then(async (r) => {
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok || d?.error) throw new Error(d?.error || ("Sunucu hatasi " + r.status));
-          return d;
-        })
-        .catch(() => ({ insights: [] })),
+      // Ana veri (fetchJson: !ok / d.error → throw eder, render'i çökertmez)
+      fetchJson("/api/dashboard"),
+      // Insights ikincil: hatada boş diziye düş, ana akışı bozma
+      fetchJson("/api/insights").catch(() => ({ insights: [] })),
     ])
       .then(([d, ins]) => {
         const sum = (d?.summary ?? []) as WeeklySummary[];

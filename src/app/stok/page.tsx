@@ -2,11 +2,11 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { fmtInt, RETAILERS, RETAILER_COLORS } from "@/lib/format";
+import { fmtInt, RETAILERS, RETAILER_COLORS, colorOf } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseProductMeta } from "@/lib/compute";
-import { SortableTh, MultiChips, RangeMin, useSort, type SortDir } from "@/components/Controls";
+import { SortableTh, MultiChips, RangeMin, type SortDir } from "@/components/Controls";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   kritik: { label: "Az stok", cls: "text-red-300 bg-red-500/15 border-red-500/40" },
@@ -14,7 +14,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   saglikli: { label: "Sağlıklı", cls: "text-neon bg-neon/10 border-neon/30" },
 };
 const COLORS = RETAILER_COLORS;
-const col = (r: string) => RETAILER_COLORS[r] ?? "#7d927d";
+const col = colorOf;
 
 type StatusTab = "kritik" | "fazla" | "saglikli" | "all";
 type View = "durum" | "sure" | "olu";

@@ -30,7 +30,7 @@ export function normalizeNezih(rows: Row[], week: WeekRange, sourceFile: string)
   const cols = Object.keys(rows[0]);
   const colBarkod = matchCol(cols, ["barkod", "ean"]);
   const colName = matchCol(cols, ["urunadi", "adi", "urun"]);
-  const colSales = matchCol(cols, ["satis", "cikis", "cikisadet", "cikisadedi", "cikismiktar", "cikismiktari", "satisadet"]);
+  const colSales = matchCol(cols, ["satis", "satisadet", "satisadedi", "satismiktar", "satismiktari", "cikis", "cikisadet", "cikisadedi", "cikismiktar", "cikismiktari"]);
   const colStock = matchCol(cols, ["stok", "mevcutstok"]);
 
   const missing: string[] = [];

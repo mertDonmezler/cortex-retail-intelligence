@@ -26,10 +26,10 @@ export async function GET(req: NextRequest) {
 
     const [rows, { data: allWeeks }] = await Promise.all([
       fetchAllRows((from, to) =>
-        supabase.from("fact_weekly")
+        supabase.from("sku_weekly")
           .select("sku_name, sales_qty, sales_value, stock_qty")
           .eq("retailer", retailer).eq("week_start", wk)
-          .order("id").range(from, to)
+          .order("sku_name").range(from, to)
       ),
       supabase.from("weekly_summary").select("week_start")
         .eq("retailer", retailer).order("week_start", { ascending: false }),

@@ -4,9 +4,8 @@ import * as XLSX from "xlsx";
 import {
   execOverview, globalRankings, categoryBreakdown, type FactRow,
 } from "@/lib/compute";
-import { RETAILERS } from "@/lib/normalizers/types";
 import { getApprovedAliases } from "@/lib/aliases";
-import { toNetFacts, toNetSummary, FACT_COLS } from "@/lib/rows";
+import { toNetFacts, toNetSummary, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,16 +58,17 @@ export async function GET(req: NextRequest) {
 
     // 3) Sıralamalar (global top) — STRICT: yalnızca seçili/güncel hafta (as-of yok)
     const focus = week ?? exec.latest_week ?? undefined;
-    const latestRows: FactRow[] = [];
+    let latestRows: FactRow[] = [];
     const prevByKey = new Map<string, { qty: number; val: number }>();
-    if (focus) for (const retailer of RETAILERS) {
+    if (focus) {
+      // HIZ: tüm firmaların haftasını TEK sku_weekly sorgusunda çek (rankings kalıbı).
+      // Eskiden perakendeci başına ayrı fact_weekly sorgusu (N+1) + eski mağaza-bazlı
+      // haftalarda on binlerce satır sayfalanıyordu.
       const lr = await fetchAllRows((from, to) =>
-        supabase.from("fact_weekly")
-          .select(FACT_COLS)
-          .eq("retailer", retailer).eq("week_start", focus).order("id").range(from, to)
+        supabase.from("sku_weekly").select(SKU_COLS)
+          .eq("week_start", focus).order("retailer").order("sku_name").range(from, to)
       );
-      if (!lr.length) continue;
-      latestRows.push(...toNetFacts(lr));
+      latestRows = toNetFacts(lr);
     }
     const aliases = await getApprovedAliases();
     const { top } = globalRankings(latestRows, prevByKey, "value", aliases);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { pivotProduct } from "@/lib/compute";
-import { toNetFacts, FACT_COLS } from "@/lib/rows";
+import { toNetFacts, SKU_COLS } from "@/lib/rows";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -12,17 +12,17 @@ export async function GET(req: NextRequest) {
   const barkod = searchParams.get("barkod");
   try {
     if (barkod) {
-      const SEL = FACT_COLS;
+      const SEL = SKU_COLS;
       let rows = await fetchAllRows((from, to) =>
-        supabase.from("fact_weekly").select(SEL).eq("barkod", barkod).order("id").range(from, to)
+        supabase.from("sku_weekly").select(SEL).eq("barkod", barkod).order("sku_name").range(from, to)
       );
       // Onaylı alias'la bu barkoda bağlı barkodsuz kalemler (ör. Toyzz) de dahil
       const { data: al } = await supabase.from("product_alias")
         .select("retailer, sku_name").eq("barkod", barkod).eq("status", "approved");
       for (const a of al ?? []) {
         const extra = await fetchAllRows((from, to) =>
-          supabase.from("fact_weekly").select(SEL)
-            .eq("retailer", a.retailer).eq("sku_name", a.sku_name).is("barkod", null).order("id").range(from, to)
+          supabase.from("sku_weekly").select(SEL)
+            .eq("retailer", a.retailer).eq("sku_name", a.sku_name).is("barkod", null).order("sku_name").range(from, to)
         );
         rows = rows.concat(extra);
       }
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     }
     if (q && q.length >= 2) {
       const { data: rows } = await supabase
-        .from("fact_weekly").select("barkod, sku_name, retailer")
+        .from("sku_weekly").select("barkod, sku_name, retailer")
         .ilike("sku_name", `%${q}%`).not("barkod", "is", null).limit(500);
       const seen = new Map<string, { barkod: string; names: Set<string>; retailers: Set<string> }>();
       for (const r of rows ?? []) {

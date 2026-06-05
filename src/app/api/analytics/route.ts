@@ -28,11 +28,11 @@ export async function GET(req: NextRequest) {
 
     const rows = await fetchAllRows((from, to) =>
       supabase
-        .from("fact_weekly")
+        .from("sku_weekly")
         .select("sku_name, barkod, week_start, sales_qty, stock_qty, sales_value")
         .eq("retailer", retailer)
         .in("week_start", weekList)
-        .order("id")
+        .order("week_start")
         .range(from, to)
     );
 
