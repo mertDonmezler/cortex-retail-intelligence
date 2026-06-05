@@ -71,7 +71,7 @@ export async function GET() {
     if (stale.length) issues.push({ id: "stale", severity: "high", label: "Bayat perakendeci (güncel haftası eksik)", count: stale.length, hint: "Bu firma(lar) son haftayı göndermemiş olabilir.", examples: stale });
     if (gapTotal > 0) issues.push({ id: "gaps", severity: "med", label: "Eksik hafta (veri serisinde boşluk)", count: gapTotal, hint: "Aradaki bazı haftaların verisi hiç yüklenmemiş.", examples: gapEx });
     if (negStock > 0) issues.push({ id: "neg_stock", severity: "med", label: "Negatif stok", count: negStock, hint: "Fiziksel olarak anlamsız; kaynak/ETL düzeltmesi veya 0'a sabitleme." });
-    if (negSales > 0) issues.push({ id: "neg_sales", severity: "low", label: "Negatif satış adedi", count: negSales, hint: "Büyük olasılıkla iade/düzeltme satırı." });
+    if (negSales > 0) issues.push({ id: "neg_sales", severity: "info", label: "Negatif satış (iade/düzeltme)", count: negSales, hint: "Gerçek iade/düzeltme satırları — veri doğru, bilgi amaçlı." });
     if (placeholder > 0) issues.push({ id: "placeholder", severity: "low", label: "Placeholder SKU (***KULLANILMAYACAK***)", count: placeholder, hint: "Kaynak listeden gelen ölü kayıt; raporlardan elenmeli." });
     if (mojibake > 0) issues.push({ id: "mojibake", severity: "low", label: "Şüpheli karakterli ad (mojibake / ?)", count: mojibake, hint: "Türkçe karakter kodlama bozukluğu; aynı ürün farklı yazımlara bölünebilir." });
     if (toyzzPending > 0) issues.push({ id: "toyzz_ean", severity: "info", label: "Toyzz EAN önerisi onay bekliyor", count: toyzzPending, hint: "/eslesme sayfasında aday seçip onayla → firmalar-arası birleşir." });
