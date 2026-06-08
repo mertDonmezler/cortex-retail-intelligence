@@ -148,12 +148,15 @@ export function canonicalWeek(range: WeekRange): WeekRange {
   return { start: mon.toISOString().slice(0, 10), end: sun.toISOString().slice(0, 10) };
 }
 
-// Dosya adından çıkmazsa: bugünün haftası (Pzt–Paz) — son çare
+// Dosya adından çıkmazsa: SON TAMAMLANMIŞ hafta (bir önceki Pzt–Paz) — son çare.
+// Haftalık satış/stok raporları geçmiş (biten) haftaya aittir; bu yüzden içinde
+// bulunduğumuz YARIM haftaya değil, tamamlanmış haftaya yazılır. Tarihsiz dosyaların
+// (ör. Nezih raporStokGC…) yanlışlıkla bir sonraki/yarım haftaya düşmesini önler.
 export function weekFromToday(): WeekRange {
   const d = new Date();
   const dow = (d.getDay() + 6) % 7; // Pazartesi = 0
   const monday = new Date(d);
-  monday.setDate(d.getDate() - dow);
+  monday.setDate(d.getDate() - dow - 7); // bir önceki haftanın Pazartesi'si
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   return {
