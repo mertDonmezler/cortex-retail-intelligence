@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { fmtInt, RETAILERS, RETAILER_COLORS, colorOf } from "@/lib/format";
+import { fmtInt, fmtMoney, RETAILERS, RETAILER_COLORS, colorOf } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
 import { fetchJson } from "@/lib/fetchJson";
 import { parseProductMeta } from "@/lib/compute";
@@ -19,7 +19,7 @@ const col = colorOf;
 type StatusTab = "kritik" | "fazla" | "saglikli" | "all";
 type View = "durum" | "sure" | "olu";
 // Durum tablosunda sıralanabilir sayısal kolonlar (alan adları item üzerinde birebir).
-type DurumSortKey = "avg_weekly" | "last_stock" | "coverage";
+type DurumSortKey = "avg_weekly" | "last_stock" | "coverage" | "stock_value";
 
 // Üç görünüm tek "Stok" merkezinde:
 //  • durum → ağ geneli birleşik stok durumu (firma + az/fazla/sağlıklı filtresi)
@@ -68,6 +68,13 @@ export default function StokPage() {
       }),
     [data]
   );
+
+  // Firma bazında AŞIRI STOK (fazla) PSF değeri toplamı — "ne kadar ₺ takılı".
+  const overstockValue = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const i of enriched as any[]) if (i.status === "fazla") m[i.retailer] = (m[i.retailer] || 0) + (i.stock_value || 0);
+    return m;
+  }, [enriched]);
 
   // Chip seçenekleri yalnızca seçili firmalardaki ürünlerden türesin (boş seçenek gösterme).
   const metaOptions = useMemo(() => {
@@ -136,6 +143,9 @@ export default function StokPage() {
     });
   }, [enriched, firms, status, brands, teams, types, covMin, covMax, search, sortKey, sortDir]);
 
+  // Görünen listenin toplam PSF stok değeri (Toyzz + Fazla seçince = Toyzz aşırı stok toplamı).
+  const itemsValue = useMemo(() => (items as any[]).reduce((a, i) => a + (i.stock_value || 0), 0), [items]);
+
   function toggleFirm(f: string) {
     setFirms((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]));
   }
@@ -173,11 +183,13 @@ export default function StokPage() {
     downloadCsv("cortex-stok-durumu", items.map((r: any) => ({
       firma: r.retailer, urun: r.sku_name, barkod: r.barkod ?? "",
       haftalik_ort: Math.round(r.avg_weekly * 10) / 10, stok: r.last_stock,
+      stok_degeri_psf: r.stock_value ?? 0,
       kac_hafta: r.coverage == null ? "" : Math.round(r.coverage * 10) / 10,
       durum: STATUS[r.status]?.label ?? r.status,
     })), [
       { key: "firma", label: "Firma" }, { key: "urun", label: "Ürün" }, { key: "barkod", label: "Barkod" },
       { key: "haftalik_ort", label: "Haftalık Ort. Satış" }, { key: "stok", label: "Stok" },
+      { key: "stok_degeri_psf", label: "Stok Değeri (PSF)" },
       { key: "kac_hafta", label: "Kaç Hafta Yeter" }, { key: "durum", label: "Durum" },
     ]);
   }
@@ -227,6 +239,26 @@ export default function StokPage() {
       {/* ═════════ 1) STOK DURUMU ═════════ */}
       {view === "durum" && (
         <>
+          {/* AŞIRI STOK (fazla) PSF değeri — firma başına bağlı tutar; tıkla → o firmayı+fazlayı süz */}
+          {Object.keys(overstockValue).length > 0 && (
+            <div className="space-y-2">
+              <div className="mono text-[11px] text-txt-dim tracking-wider">AŞIRI STOK DEĞERİ (PSF) · firma başına bağlı tutar · tıkla → süz</div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {Object.entries(overstockValue).sort((a, b) => b[1] - a[1]).map(([f, v]) => {
+                  const on = firms.length === 1 && firms[0] === f && status === "fazla";
+                  return (
+                    <button key={f} onClick={() => { setFirms([f]); setStatus("fazla"); }}
+                      className="card p-4 text-left hover:border-neon/50 transition-colors"
+                      style={on ? { borderColor: "#f8b00b80", background: "#f8b00b12" } : undefined}
+                      title={`${f} aşırı stok toplamı — tıkla: bu firma + fazla stok`}>
+                      <div className="mono text-[10px] tracking-wider" style={{ color: colorOf(f) }}>{f.toUpperCase()}</div>
+                      <div className="text-xl font-bold mono mt-1" style={{ color: "#f8b00b" }}>{fmtMoney(v)}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="card p-4 space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="mono text-xs text-txt-dim mr-1">Firmalar:</span>
@@ -300,7 +332,7 @@ export default function StokPage() {
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold">{status === "kritik" ? "Az stok (sipariş gerekebilir)" : status === "fazla" ? "Fazla stok (kampanya)" : status === "saglikli" ? "Sağlıklı" : "Tüm stok durumu"}</h2>
                 <span className="mono text-xs text-txt-dim">
-                  {durumFiltered ? `${items.length} / ${scopeTotal}` : `${items.length}`} kalem
+                  {durumFiltered ? `${items.length} / ${scopeTotal}` : `${items.length}`} kalem · <span style={{ color: "#f8b00b" }}>{fmtMoney(itemsValue)} PSF</span>
                 </span>
               </div>
               {items.length ? (
@@ -312,6 +344,8 @@ export default function StokPage() {
                         active={sortKey === "avg_weekly"} dir={sortDir} onClick={toggleDurumSort} />
                       <SortableTh label="Stok" sortKey="last_stock" align="right"
                         active={sortKey === "last_stock"} dir={sortDir} onClick={toggleDurumSort} />
+                      <SortableTh label="Stok Değeri (PSF)" sortKey="stock_value" align="right"
+                        active={sortKey === "stock_value"} dir={sortDir} onClick={toggleDurumSort} />
                       <SortableTh label="Kaç Hafta Yeter" sortKey="coverage" align="right"
                         active={sortKey === "coverage"} dir={sortDir} onClick={toggleDurumSort} />
                       <th>Durum</th>
@@ -329,6 +363,7 @@ export default function StokPage() {
                           <td className="max-w-[340px] truncate" title={(r.barkod ? r.barkod + " · " : "") + r.sku_name}>{r.sku_name}</td>
                           <td className="mono text-right">{Math.round(r.avg_weekly * 10) / 10}</td>
                           <td className="mono text-right">{fmtInt(r.last_stock)}</td>
+                          <td className="mono text-right" style={{ color: "#f8b00b" }}>{r.stock_value ? fmtMoney(r.stock_value) : "—"}</td>
                           <td className="mono text-right">{r.coverage == null ? "—" : `${Math.round(r.coverage * 10) / 10} hf`}</td>
                           <td><span className={`mono text-[10px] px-2 py-0.5 rounded border ${st.cls}`}>{st.label}</span></td>
                         </tr>

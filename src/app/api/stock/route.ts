@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   try {
     const rows = await fetchAllRows<any>((from, to) =>
       supabase.from("product_coverage")
-        .select("retailer, product_key, barkod, sku_name, avg_weekly, last_stock, coverage_weeks")
+        .select("retailer, product_key, barkod, sku_name, avg_weekly, last_stock, coverage_weeks, psf")
         .order("product_key").order("retailer").range(from, to)
     );
 
@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
         const avg = Number(r.avg_weekly ?? 0);
         const stock = Number(r.last_stock ?? 0);
         const cov = r.coverage_weeks == null ? null : Number(r.coverage_weeks);
+        const psf = Number(r.psf ?? 0);
         return {
           retailer: r.retailer,
           sku_name: r.sku_name ?? "",
@@ -82,6 +83,8 @@ export async function GET(req: NextRequest) {
           avg_weekly: avg,
           last_stock: stock,
           coverage: cov,
+          psf,
+          stock_value: Math.round(stock * psf), // PSF bazlı bağlı stok değeri
           status: coverageStatus(cov, avg, stock),
         };
       })

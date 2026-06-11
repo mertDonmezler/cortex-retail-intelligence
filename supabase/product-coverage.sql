@@ -12,7 +12,7 @@ with base as (
   select f.retailer,
     coalesce(nullif(f.barkod, ''), pa.barkod, 'NAME:' || f.sku_name) as product_key,
     coalesce(nullif(f.barkod, ''), pa.barkod)                        as barkod,
-    f.sku_name, f.sales_qty, f.stock_qty, f.week_start
+    f.sku_name, f.sales_qty, f.sales_value, f.stock_qty, f.price, f.week_start
   from fact_weekly f
   left join product_alias pa
     on pa.retailer = f.retailer and pa.sku_name = f.sku_name and pa.status = 'approved'
@@ -23,7 +23,9 @@ agg as (
     (array_agg(sku_name order by length(sku_name) desc))[1] as sku_name,
     sum(sales_qty)::numeric                              as total_sales,
     count(distinct week_start)                           as weeks,
-    max(week_start)                                      as last_week
+    max(week_start)                                      as last_week,
+    -- birim PSF: fiyat kolonu varsa o, yoksa satış tutarı/adetten türet (Huppaluppo/Nezih)
+    max(coalesce(price, case when sales_qty > 0 then sales_value / sales_qty end))::numeric as psf
   from base group by retailer, product_key
 ),
 laststock as (
@@ -37,7 +39,8 @@ select a.retailer, a.product_key, a.barkod, a.sku_name, a.total_sales, a.weeks,
   coalesce(l.last_stock, 0)                                                      as last_stock,
   case when a.weeks > 0 and a.total_sales > 0
        then coalesce(l.last_stock, 0) / (a.total_sales / a.weeks)
-       else null end                                                            as coverage_weeks
+       else null end                                                            as coverage_weeks,
+  coalesce(a.psf, 0)                                                            as psf
 from agg a left join laststock l on l.retailer = a.retailer and l.product_key = a.product_key;
 
 create unique index if not exists idx_pcov_key on product_coverage (retailer, product_key);
