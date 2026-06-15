@@ -24,8 +24,11 @@ agg as (
     sum(sales_qty)::numeric                              as total_sales,
     count(distinct week_start)                           as weeks,
     max(week_start)                                      as last_week,
-    -- birim PSF: fiyat kolonu varsa o, yoksa satış tutarı/adetten türet (Huppaluppo/Nezih)
-    max(coalesce(price, case when sales_qty > 0 then sales_value / sales_qty end))::numeric as psf
+    -- birim PSF: fiyat kolonu varsa o, yoksa satış tutarı/adetten türet (Huppaluppo/Nezih).
+    -- MEDYAN kullanılır (MAX değil) — tek bozuk hafta değeri PSF'i şişirmesin (denetim R1).
+    percentile_cont(0.5) within group (
+      order by coalesce(price, case when sales_qty > 0 then sales_value / sales_qty end)
+    )::numeric as psf
   from base group by retailer, product_key
 ),
 laststock as (

@@ -10,7 +10,7 @@ type Route = {
   action: "TRANSFER" | "DEPO" | "SEVK" | "İZLE";
   retailer: string; sku_name: string; barkod: string; season: string;
   stock: number; velocity: number; coverage: number | null; psf: number;
-  qty: number; target: Target; toDepot: number; value: number; reason: string;
+  qty: number; target: Target; toDepot: number; value: number; reason: string; noPrice?: boolean;
   [k: string]: unknown;
 };
 
@@ -120,7 +120,7 @@ export default function YonlendirmePage() {
       {sm && (
         <div className="card p-3 mono text-xs text-txt-dim flex flex-wrap gap-x-6 gap-y-1">
           <span>Toplam çekilecek (transfer + depo): <span className="font-bold" style={{ color: "#f8b00b" }}>{fmtMoney(sm.cekToplam)} PSF</span></span>
-          <span>Kanalda {keep} haftalık stok bırakılır · satmıyor &lt;1/hf · aşırı stok &gt;26 hf · yeni ürün (&lt;6 hf) iade edilmez</span>
+          <span>Kanalda {keep} haftalık stok bırakılır · satmıyor &lt;1/hf · aşırı stok &gt;26 hf · yeni ürün (&lt;6 hf) iade edilmez · hedef kapasitesi paylaşımlı (çift-tahsis yok) · PSF medyan{sm.noPrice ? ` · ${sm.noPrice} kalem fiyatsız (değerleme dışı)` : ""}</span>
         </div>
       )}
 
@@ -192,7 +192,7 @@ export default function YonlendirmePage() {
                         : r.action === "SEVK" ? <span style={{ color: "#1FF80B" }}>depodan sevk</span>
                         : <span className="text-txt-dim">bekle</span>}
                     </td>
-                    <td className="mono text-right" style={{ color: r.value ? "#f8b00b" : "#7d927d" }}>{r.value ? fmtMoney(r.value) : "—"}</td>
+                    <td className="mono text-right" style={{ color: r.value ? "#f8b00b" : "#7d927d" }}>{r.value ? fmtMoney(r.value) : (r.noPrice ? <span className="text-[10px] text-txt-dim" title="Sistemde fiyat yok — değerleme dışı, adetle karar ver">fiyat yok</span> : "—")}</td>
                   </tr>
                 );
               })}
