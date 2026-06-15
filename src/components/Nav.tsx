@@ -15,6 +15,7 @@ const NAV = [
   { href: "/sku", label: "SKU" },
   { href: "/stock-alerts", label: "Sipariş" },
   { href: "/stok", label: "Stok" },
+  { href: "/yonlendirme", label: "Yönlendirme" },
   { href: "/sat-ode", label: "Sat-Öde" },
   { href: "/eslesme", label: "Eşleşme" },
   { href: "/upload", label: "Yükle" },
