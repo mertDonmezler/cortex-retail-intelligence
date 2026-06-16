@@ -1,0 +1,979 @@
+
+===== PAGE 1 =====
+ 
+Copyright © 2013 by Nathan Craig and Ananth Raman 
+Working papers are in draft form. This working pa per is distributed for pu rposes of comment and 
+discussion only. It may not be reproduced without pe rmission of the copyright holder. Copies of working 
+papers are available from the author. 
+ 
+ 
+Improving Store Liquidation  
+ 
+Nathan Craig 
+Ananth Raman 
+ 
+ 
+ 
+Working Paper 
+ 
+13-096 
+ 
+May 3, 2013 
+ 
+===== PAGE 2 =====
+Improving Store Liquidation
+Nathan Craig and Ananth Raman
+Harvard Business School
+May 3, 2013
+Abstract
+Store liquidation is the time-constrained divestment of retail outlets through an in-store
+sale of inventory. The retail industry depends extensively on store liquidation, not only as a
+means for investors to recover capital from failed ventures, but also to allow managers of going
+concerns to divest stores in eﬀorts to enhance performance and to change strategy. Recent
+examples of entire chains being liquidated include Borders Group in 2012, Circuit City in 2009,
+and Linens ‘n Things in 2008; the value of inventory sold during these liquidations alone is $3B.
+The store liquidation problem is related to but also diﬀers substantially from the markdown
+optimization problem that has been studied extensively in the literature. This paper introduces
+the store liquidation problem to the literature and presents a technique for optimizing key
+decision variables, such as markdown, inventory, and store closing decisions during liquidations.
+We show that our approach could improve net recovery on cost (i.e., the proﬁt obtained during
+liquidations stated as a percentage of the cost value of liquidated assets) by 2 to 7 percentage
+points in the cases we examined. The paper also identiﬁes ways in which current practice in store
+liquidation diﬀers from the optimal decisions identiﬁed in the paper and traces the consequences
+of these diﬀerences.
+1 Introduction
+Store liquidation, deﬁned as the as the time-constrained divestment of retail stores through an
+in-store sale of inventory, is a critical aspect of the retail industry for both defunct and going
+1
+===== PAGE 3 =====
+concerns. Going concerns use store liquidation to divest sets of stores or even entire concepts.
+Struggling and failed retailers liquidate thousands of stores and billions of dollars of inventory each
+year. For example, as Borders Group entered bankruptcy in early 2011, it held $638.5M dollars of
+inventory.1 Circuit City and Linens ‘n Things held $1.5B and $795.4M, respectively, of inventory
+prior to entering bankruptcy. Given the size of these liquidations, even a small improvement in
+net recovery on cost—i.e., the proﬁt obtained during a liquidation stated as a percentage of the
+cost value of inventories liquidated—can be substantial. For example, a 1% improvement in Circuit
+City’s net recovery on cost would have amounted to $15M.
+Store liquidation has important implications for ﬁrms and investors. Bankruptcy and, thus,
+liquidation are common in retailing: for the United States alone, Capital IQ records 2,013 retailer
+bankruptcy announcements over the decade beginning in 2000. Further, Gaur et al. (2013) ﬁnd
+that 3.4% of all public retailers during the past 20 years were liquidated in bankruptcy. Store
+liquidations operated by asset disposition ﬁrms like Gordon Brothers Group (GBG) and Hilco
+Merchant Resources, such as those conducted for Montgomery Ward (Ordonez et al., 2001) and
+Syms Corporation, the owner of Filene’s Basement (Mattioli, 2011), help stakeholders recoup funds
+from failed ﬁrms and allow investors to shunt capital to other ventures. According to managers at
+GBG, that ﬁrm alone liquidated over $2B of inventory measured at retail value during 2011.
+Improving store liquidation in bankruptcy can also directly increase liquidity within the retail
+industry, since the funds and terms available to retailers using inventory-based lending, a type of
+asset-based lending in which the collateral is a retailer’s inventory, depend on the estimated NOLV
+of the inventory (Foley et al., 2012). Inventory-based lending is an important source of capital in
+the retail sector (Alan and Gaur, 2012). Example inventory-based loans include a $3.28B revolver
+held by Sears Holdings Corporation and a $1B revolver used by Barnes & Noble. 2 Of course, the
+liquidation value of a retailer can also aﬀect its ability to obtain trade credit as well as the terms
+of the credit it receives; see, for example, Yang and Birge (2011).
+Store liquidation is a valuable tool for going concerns: the ability to redeploy resources by
+eﬀectively liquidating subsets of stores is key for managers. Store liquidations allow ﬁrms to generate
+1The inventory ﬁgures reported in this paragraph are recorded by Capital IQ.
+2These ﬁgures are reported in ﬁrm quarterly ﬁlings and are current as of January 1, 2013.
+2
+===== PAGE 4 =====
+cash from poorly performing stores and chains, as in the cases of Barnes & Noble’s decision to close
+roughly 200 stores over the coming decade (Trachtenberg, 2013), of Sears Holdings’ liquidation of
+over 100 Sears and Kmart stores (Lahart, 2011), and of Home Depot’s closing of its EXPO stores
+(Zimmerman, 2009). Store liquidation also allows managers to free resources to abet a change in
+strategy, as in Best Buy’s closing of 50 big box stores to fund a new focus on mobile device stores
+(Bustillo, 2012). Store liquidation is useful in other situations as well: when Pamida, a department
+store chain, merged with Shopko (LBO Wire, 2012), a similar ﬁrm, managers conducted store
+liquidations to empty Pamida stores and prepare them for conversion to Shopko stores. Other
+going concerns that rely on asset disposition ﬁrms to close stores include Dick’s Sporting Goods,
+Forever 21, J.C. Penney, Rite Aid, and Saks Fifth Avenue. 3
+The store liquidation problem diﬀers from the markdown optimization problem that has been
+studied extensively in the literature. First, unlike in the markdown optimization problem, retailers
+have to close (i.e., stop operating their stores) in the store liquidation problem. The decision of
+when to close a store and, if needed, move the merchandise to another store is an integral part of
+the liquidation problem. The decision of which stores to open on a particular day adds a number
+of binary decision variables to the optimization problem and is a function of demand levels, store
+operating costs, and inter-store transfer times and costs.
+Second, consumers behave diﬀerently during a store liquidation than at a store under normal
+operation. Hence, there is considerably more demand uncertainty during store liquidation than
+during normal store operations or even in markdown optimization. It is hard to predict ex-ante
+how consumers will react to a liquidation event, and the reaction can diﬀer substantially from
+one store in a liquidation event to another. As the liquidation progresses, the level of demand
+uncertainty goes down. Consequently, in identifying optimal liquidation approaches, one needs to
+explicitly incorporate these phenomena—demand uncertainty and forecast updating.
+Third, liquidations involve “quirks”—special features and constraints that characterize each
+event and often individual stores within the same liquidation event. For example, there might be
+greater ﬂexibility on when some stores in a chain can be shut down because of the lease agreement
+3For more examples, see the client list posted by Hilco Merchant Resources at http://www.
+hilcomerchantresources.com/ClientList.asp.
+3
+===== PAGE 5 =====
+with the store’s landlord. Similarly, as we illustrate in examples later in the paper, there might be
+limitations on changing markdown levels, inventory transfers, or store closings by deal. Any method
+to optimize store liquidation should be ﬂexible enough to accommodate these unique features
+associated with each liquidation.
+In this paper, we introduce a method for improving the eﬃciency of store liquidations, i.e., for
+increasing the net orderly liquidation value (NOLV) of retail stores, with a focus on liquidations
+conducted by asset disposition ﬁrms. The method comprises a dynamic program that informs
+markdown, inventory, and store closing decisions as well as a demand forecasting model. We
+provide techniques for estimating the parameters in our model and a heuristic approach to solve
+the dynamic program. We compare the performance of our method to practice in selected case
+studies and show that the net recovery on cost improved by 2 to 7 percentage points. Through
+these applications, we provide novel insights gleaned from the use of our technique. GBG served
+as the test site and our collaborator for the research in this paper; we partnered with GBG on
+liquidating over $3B of inventory.
+This paper is organized as follows. The next section provides background on the process of
+store liquidation. §3 discusses how our work relates to prior literature. §4 presents the full dy-
+namic program. §5 introduces our solution methodology, including the modiﬁed program and the
+forecasting model. In §6, we discuss the performance of our methods in practice as well as insights
+garnered while applying the methods. Our concluding remarks are in §7.
+2 The Process of Store Liquidation
+From the retail asset disposition ﬁrm’s perspective, the ﬁrst step of any liquidation is “getting
+the deal.” In the case of a bankruptcy liquidation, the liquidator receives information on store
+characteristics, inventory, and historical performance from the bankrupt retailer. Typical data
+include store location and square footage, store-level or category-level inventory in terms of cost
+and retail value, count, and age, as well as current- and last-year store revenues. The liquidator must
+then ﬁle a bid with the bankruptcy court for the right to liquidate the bankrupt ﬁrm’s inventory
+within the retailer’s extant retail outlets. The bidding process transpires quickly and is often limited
+4
+===== PAGE 6 =====
+to less than a week. In the case of a going concern liquidation, the asset disposition ﬁrm receives
+similar information and must engage in a sales process—i.e., earning the right to liquidate from the
+retailer, often through the estimation of net liquidation proceeds and the negotiation of fees.
+During a store liquidation, inventory is sold at an increasing discount in a set of retail stores
+over a ﬁnite time period. The length of a liquidation is limited by law for both bankrupt ﬁrms
+and going concerns The majority of U.S. states constrain the length of all liquidation, distressed
+inventory, and going-out-of-business sales to protect consumers from ﬁrms that might perpetually
+use liquidation as a marketing tool. See, for example, Ohio Administrative Code Chapter 109:4-3-
+17, which constrains liquidations to 90 days, and Massachusetts General Laws Part 1, Chapter 93,
+§28A, which limits going-out-of-business sales to 60 days. Many other jurisdictions impose similar
+restrictions.
+Liquidators may execute a sale for a ﬁxed fee or on an equity basis. In the latter case, the
+asset disposition ﬁrm pays up front for the right to liquidate the inventory. In the equity case, the
+liquidator may share some portion of the proceeds with the retailer or the retailer’s estate. For
+instance, in advance of the ﬁnal liquidation of Borders Group during 2011, liquidators agreed to pay
+Borders’ estate 72% of the audited cost value of inventory present at the outset of liquidation plus
+50% of the net proceeds of the liquidation (Checkler, 2011). Given the speed of store liquidation,
+even a small improvement in net recovery on cost can translate into a substantial increase in
+annualized return on investment in the case of an equity liquidation. For instance, suppose an
+asset disposition ﬁrm improves net recovery from 3%, which is fairly typical, to 5%. If the ﬁrm
+acquires $100M of inventory at cost and liquidates the inventory over the course of 12 weeks, then
+the annualized return on investment improves from 13% to 22%.
+After securing a deal, the asset disposition ﬁrm quickly begins to execute the sale, often within
+a few days. Once the liquidation commences, each store is assigned a supervisor. At the store level,
+the supervisors work to increase the proﬁtability of the liquidation through inventory placement
+(to provide a pleasant shopping environment throughout a sale, asset disposition ﬁrms collapse a
+store by moving inventory toward the front of the store and cordoning oﬀ the back of the store)
+and expense management, including inventory shrinkage and payroll. These supervisors are often
+5
+===== PAGE 7 =====
+recruited from ﬁrms subject to a prior going-out-of-business sale and thus tend to have liquidation
+experience.
+Prior exposure to liquidation is important to managers because stores in liquidation behave
+very diﬀerently than stores in normal operation. One way to illustrate this is to compare revenues
+during liquidation to revenues during normal operation. To do this, we construct liquidation
+multipliers, i.e., the ratio of revenue earned during the liquidation of a store to the revenue generated
+by that store over the same period during the prior year. Figure 1 presents box plots of store
+liquidation multipliers from four liquidations in the apparel, book, household furniture, and jewelry
+segments. As this plot shows, most stores see a signiﬁcant increase in revenue due to liquidation.
+The median store in both the book and household furniture liquidations more than doubled its
+revenue. Moreover, this revenue perspective understates the physical volume of product sold, since
+liquidation discounts exceed normal operating discounts.
+In current practice, asset disposition ﬁrms use central managers to plan a common markdown
+cadence across all stores. This markdown cadence is chosen based on the managers’ prior experience
+with a given retail segment. Broadly, the markdowns start relatively low—usually around 25%—
+and increase to approximately 85% over the course of the sale. Figure 2 plots the realized markdown
+levels over time across six retail chains in diﬀerent segments. Each store continues to operate until
+its inventory is sold through or until it turns unproﬁtable, i.e., when revenues exceed operating
+costs. Remaining inventory is either sold at a large discount to a jobber or, rarely, is transferred to
+a nearby store in the same chain. As will be discussed in §6, our method represents a substantial
+departure from this practice.
+Managers operating liquidations typically track inventory at the cost level rather than at the
+item level. This is due to the coarseness of the information an asset disposition ﬁrm receives from
+a retailer as well as to the need to execute a liquidation quickly. The optimization and forecasting
+models proposed herein are formulated accordingly. Determining when it is beneﬁcial to incur the
+costs of managing inventory at the item level is part of our ongoing research.
+Further complicating the operation of a store liquidation is the fact that each sale poses unique
+constraints. As mentioned previously, Massachusetts laws limit liquidations to 60 days whereas
+6
+===== PAGE 8 =====
+Ohio laws allow longer, 90-day liquidations. Moreover, mall landlords may limit the duration of a
+liquidation to a period shorter than that mandated by law in order to avoid giving the impression
+that their property is faltering. Another possible challenge is that a given store may possess inferior
+loading and storage facilities that hamper the ability to transport large quantities of inventory in or
+out of the store. Thus, methods for informing asset disposition ﬁrms’ decisions during a liquidation
+must be ﬂexible in order to accommodate such restrictions.
+We have identiﬁed three key operational levers for central managers to improve eﬃciency during
+store liquidations: markdowns, inventory transfers, and store closings. Markdowns allow managers
+to aﬀect the volume and timing of demand as well as the revenue realized from the sale. For
+instance, at the outset of a sale, liquidators tend to use small discounts to maximize the revenue
+from high-demand goods. Inventory transfers allow managers to move inventory to stores that
+are more attractive from a demand or cost perspective but have costs associated with movement.
+Finally, store closings are used in conjunction with inventory transfers and markdowns to reduce
+costs by shuttering certain locations in advance of the overall sale time limit.
+We introduce a dynamic program that selects the store-level markdowns, transfers, and store
+closings that maximize the proﬁtability of a store liquidation subject to random demands, where
+proﬁtability is deﬁned as revenues less operating expenses such as payroll and shipping costs.
+This model departs from prior works on markdown optimization by explicitly incorporating store
+operating expenses and recognizing the inventory imbalances across diﬀerent stores. Thus, the
+model may use inventory transfers, markdowns, and store closings to mitigate operating costs. 4
+We now provide a brief overview of related research before turning to our formulation of the store
+liquidation problem.
+3 Related Literature
+This work builds on the literature on retailing perishable and seasonal goods, which seeks to
+optimize pricing, inventory, and other key decisions for merchandise in some stage of liquidation.
+4We note that this store liquidation problem could also be used in other retail contexts. For example, if a retailer
+could estimate the cost of the shelf space used to liquidate seasonal merchandise, the retailer could apply this model
+to end-of-season sales, since shelving costs are analogous to store operating costs.
+7
+===== PAGE 9 =====
+Often, markdown optimization is the focus of these models. For example, Gallego and Van Ryzin
+(1994) examine the optimal control of prices during the liquidation of a ﬁxed stock of product
+subject to price-dependent demand. See Bitran and Caldentey (2003) for an excellent review of
+the markdown optimization literature. Other works focus on inventory: Fisher and Raman (1996)
+study pre-season and replenishment inventory decisions when selling a seasonal good while Caro
+and Gallien (2007) examine assortment decisions at a fast-fashion retailer.
+Seasonal and perishable goods research that focuses on implementation is particularly germane
+to this paper. Smith and Achabal (1998) introduce pricing and inventory policies for seasonal goods
+when demand is a function of price, inventory level, and season. The authors discuss the application
+of these policies at multiple retail chains. Caro and Gallien (2010) detail work with the fast-fashion
+retailer Zara on a new process for distributing a ﬁxed amount of inventory across the retailer’s
+stores during a ﬁnite selling season. This process includes both a demand forecasting model and an
+inventory optimization model. As noted by Bitran et al. (1998), most research that incorporates
+markdowns focuses on strategies rather than formal tools. Exceptions include Bitran et al. (1998)
+and research by Caro and Gallien (forthcoming), which introduces a markdown optimization model
+that has been implemented at Zara.
+The paper most related to ours is Bitran et al. (1998), which presents a model to maximize
+the revenue from the liquidation of a single product across a retail chain. A central planner sets
+a constant price across all stores, and inventory may be transferred among stores. The authors
+examine the eﬃcacy of their model using a simulation based on data from a Chilean retail chain.
+This work departs from ours in several respects, including the absence of store operating costs,
+the requirement that prices are constant across stores, and the assumption of zero lead times for
+inventory transfers.
+In much of the literature on perishable and seasonal goods retailing, demand is treated as
+exogenous to inventory. As the literature on strategic customers demonstrates, this assumption
+can be onerous, particularly in the case of retail chain liquidation, where inventory levels drop
+precipitously and markdowns change constantly. Gallego et al. (2008) and Cachon and Swinney
+(2009) demonstrate the eﬀects of customers that strategically delay purchases to take advantage of
+8
+===== PAGE 10 =====
+future markdowns. Dana and Petruzzi (2001) and Su and Zhang (2009) treat consumers that are
+cognizant of the probability that a good will be in stock if they visit a retailer. Balakrishnan et al.
+(2004) and Balakrishnan et al. (2008) model customers that use a retailer’s stocking quantity as a
+signal of the popularity of a good, with a high stocking quantity signaling high popularity.
+We argue that each of these consumer strategies aﬀects demand during a retail chain liquidation.
+At the outset of a sale, consumers may defer purchase in anticipation of a better deal, a decision
+that may be more likely when stocking quantities are larger. Toward the end of a liquidation,
+potential customers may elect not to visit a store, assuming that it is “picked over.” Customers
+that do visit a store might experience broken assortments (Smith and Achabal, 1998) as well as
+store rearrangement and, thus, may be unable to locate desired goods. Moreover, stocking quantity
+may act as a billboard that generates demand for customers treating the liquidation as a rummage
+sale.
+In summary, we extend prior works on retailing perishable and seasonal goods by introducing
+a model that captures several essential features of store liquidation.
+4 Liquidation Model
+This section introduces a dynamic program for optimizing the proﬁtability of a store liquidation
+operated by an asset disposition ﬁrm, where proﬁtability is deﬁned as revenues less speciﬁc operating
+costs discussed below. The control variables are three key operational decisions made during a store
+liquidation: markdowns, inventory transfers, and store closings. This program proves intractable
+for larger problem instances; a modiﬁed program is presented in §5.
+Let S be the set of stores to be liquidated. Deﬁne T to be the ordered set of days over which
+the stores are liquidated. Let M be the set of potential markdowns across all stores (e.g., inventory
+may be sold at a 10%, 20%, ... , 90% discount). Store s∈ S begins day t∈ T with inventory
+zst, which, in keeping with asset disposition ﬁrm practice, is measured at the store level in retail
+dollars. Store s sells its inventory at markdown mst∈M on day t. Let zt =
+(
+z1t,...,z |S|t
+)′, and
+letmt =
+(
+m1t,...,m |S|t
+)′.
+To represent inventory transfers, letxrst be the retail dollar value of inventory that leaves storer
+9
+===== PAGE 11 =====
+on dayt for delivery to stores, and letxst =
+(
+xs1t,...,x s|S|t
+)′. We assume that inventory transfers
+depart and arrive prior to demand. Let τrs (x) be the cost of transferring inventory of value x from
+storer to store s. Let lrs be the transfer time in days for inventory shipped from store r to store s.
+We note that this time includes not only transportation time but also time that inventory sits in
+storage at the destination stores. In practice, we have observed that transportation time alone is
+often a small portion of the overall transfer time. Further, let Xt =
+(
+x1t,..., x|S|t
+)
+, i.e., the matrix
+of transfers leaving on day t, where Xt∈ Λt, the set of feasible transfers at time t. Transfers may
+be restricted by minimum and maximum size, by carrier availability, and by store constraints (e.g.,
+limited loading facilities). Let Xt = (X1,..., Xt−1), the transfer history on day t.
+Deﬁne
+ζst (zst,xst,Xt) =zst−
+∑
+r∈S
+xsrt +
+∑
+r∈S
+xr,s,t−lrs,
+the retail value of inventory available for sale at store s on dayt, which is equal to the pre-transfer
+inventory adjusted for all relevant transfers. Let ζt (zt,Xt,Xt) =
+[
+ζ1t (·),ζ 2t (·),...,ζ |S|t (·)
+]′.
+Deﬁne bst to be a binary variable that takes the value 1 if store s∈ S is open on day t∈ T
+and 0 otherwise. We assume that store s incurs operating expenses ost (bst,zst,xst,Xt) on day t.
+Example operating costs include occupancy and payroll expenses, and we assume that operating
+costs depend on inventory and transfers since stores with more inventory and transfers may require
+more employees. Let bt =
+(
+b1t,...,b |S|t
+)′.
+Let Γst be the set of possible demands at store s on day t, where demands are measured at the
+retail value of merchandise. Each store experiences a random demand on each day with distribution
+Fst (y|mst,zst,xst,Xt) for y ∈ Γst. We note that this formulation accommodates warehouses,
+which are treated as stores with no demand. We assume a relationship between demand and both
+price and inventory to capture several aforementioned dynamics, including the promotional role
+of inventory, the impact of broken assortments and store rearrangement, as well as other strategic
+consumer behaviors. For brevity, let Ψ t be the Cartesian product of Γ st over all s∈ S, and let
+yt = (y1t,...,y st)′. Deﬁne Gt (yt|mt,zt,Xt,Xt) as the joint distribution of demand across all
+stores for yt∈ Ψt.
+10
+===== PAGE 12 =====
+Using the above deﬁnitions, the current period cost across all stores on day t is
+Ct (bt,zt,Xt,Xt) =
+∑
+s∈S
+[∑
+r∈R
+τsr (xsrt) +ost (bst,zst,xst,Xt)
+]
+.
+The revenue across all stores can be written in terms of the store status indicator, the markdown,
+the demand, and the inventory available for sale as
+Rt (yt,bt,mt,zt,Xt,Xt) =
+∑
+s∈S
+bst (1−mst) min [yst,ζst (zst,xst,Xt)].
+Then the optimal proﬁt on day |T|, the ﬁnal day of liquidation, is expected revenue less cost:
+L|T|
+(
+z|T|,X|T|
+)
+=
+max
+b|T |,m|T |,X |T |
+{∫
+Ψ|T |
+R|T|
+(
+y|T|,b|T|,m|T|,z|T|,X |T |,X|T |
+)
+dG|T|
+(
+y|T|
+⏐⏐⏐m|T|,z|T|,X|T|,X|T|
+)
+−C|T|
+(
+b|T|,z|T|,X|T|,X|T|
+)
+}
+,
+overb|T|∈ B|S|,m|T|∈M|S|, and X|T|∈ Λ|T|.
+Given the proﬁt function for day|T|, we now employ backward induction to construct the proﬁt
+function for periods {t :t∈T,t< |T|}:
+Lt (zt,Xt) =
+max
+bt,mt,X t
+{∫
+Ψt
+[Rt (yt,bt,mt,zt,Xt,Xt)
++Lt+1
+(
+(ζt (zt,Xt,Xt)−yt)∨ 0|S|,Xt+1
+)]
+dGt (yt|mt,zt,Xt,Xt)
+−Ct (bt,zt,Xt,Xt)
+}
+,
+where∨ is the join operator, i.e., for two vectors of size n,a∨ b = [max (a1,b 1),..., max (an,bn)]′,
+and where 0|S| is a vector of zeros with size |S|. The maximization is solved over bt ∈ B|S|,
+mt∈M|S|, and Xt∈ Λt.
+11
+===== PAGE 13 =====
+It is straightforward to add constraints to this general formulation in order to ﬁt the require-
+ments of a given liquidation. For instance, if markdowns must be non-decreasing, then the program
+would be modiﬁed to include the constraint set mt≥mt−1∀{ t :t∈T,t> 1}. Or, if closed stores
+must remain closed, we would add the constraint set bt≤bt−1∀{ t :t∈T,t> 1}.
+The state space, which, in the general case, reﬂects the potential current and in-transit in-
+ventories of each store, grows rapidly with problem size. Thus, the problem exhibits the curse of
+dimensionality and becomes intractable for reasonable instances. To address this issue, §5 intro-
+duces a heuristic that has been implemented for large-scale store liquidations. We now turn to this
+solution methodology.
+5 Solution Methodology
+In this section, we present a solution methodology for use by an asset disposition ﬁrm during a store
+liquidation. This method, which has been applied by practitioners at GBG, comprises a relaxation
+of the store liquidation dynamic program as well as a demand forecasting model. We begin with
+the modiﬁed optimization model.
+The modiﬁed model relaxes the dynamic program by solving it in the absence of recourse, i.e.,
+by committing to all decisions at the outset of the planning horizon. Because of the structure of
+the store liquidation problem, a mixed-integer program that makes pricing, transfer, and closing
+decisions concurrently is a nonlinear mixed-integer program that does not reduce to a readily solved
+form (see, for example, Grossmann (2002) and Bonami et al. (2008)) and that does not easily
+incorporate the idiosyncratic constraints imposed by instances of the store liquidation problem.
+We thus decompose the problem into a subproblem and a master problem. The subproblem is a
+mixed-integer program with bilinear constraints that optimizes proﬁt over inventory transfers and
+store closings subject to a ﬁxed markdown schedule and speciﬁc assumptions. The master problem
+searches for the markdown schedule that maximizes the objective value of the subproblem. This
+relaxation is in the spirit of the fourth heuristic considered by Bitran and Caldentey (2003), which
+also separates pricing and inventory decisions. We start with the subproblem.
+12
+===== PAGE 14 =====
+5.1 Relaxation Subproblem: Inventory Transfers and Store Closings
+The subproblem requires a number of simplifying assumptions for tractability. The most signiﬁcant
+are highlighted in this paragraph; others are discussed as they are introduced. First, the subproblem
+assumes that there is a single opportunity to transfer inventory. This assumption is largely in
+keeping with practice, since managers are often reluctant to attempt too many transfers due to the
+complexity of doing so, an observation mirrored by Bitran et al. (1998). Second, it assumes that
+the transfer time between all stores is a constant. 5 Finally, it assumes the relationship between
+demand and inventory can be modeled using a speciﬁc functional form that is discussed below. For
+exposition, the formulation herein models the case when transfers begin on the ﬁrst day, representing
+the situation in which the model is solved immediately prior to making transfer decisions. However,
+the model is readily modiﬁed to treat transfers on an arbitrary day.
+As in §4, S is the set of stores, T is the set of liquidation days, and M is the set of possible
+markdowns. We modify the operating and transfer cost deﬁnitions as follows. Let ost be the cost
+of operating store s on day t, which is assessed when the store is open and does not depend on
+the store’s inventory. Let τrs be the cost of moving one retail dollar of inventory from store r∈S
+to store s. Further, suppose l is the transportation lead time between all stores. We note that
+the markdown in store s on day t retains the notation mst but is not a decision variable in the
+subproblem; let m be a matrix containing mst∀s∈S,∀ t∈T .
+Demand is modeled in the following fashion in the subproblem. We decompose demand into
+a set of discrete demand scenarios, where each scenario speciﬁes a base level of demand for each
+store on each day. As an input to the subproblem, this base level of demand incorporates the
+eﬀect of markdowns and beginning inventory levels but does not account for the eﬀect of inventory
+transfers. We discuss the construction of these demand scenarios from historical data in §5.3. Let
+d be a demand scenario that speciﬁes a demand dst for each store on each day; i.e.,d is a matrix of
+size|S|×|T|. Let D be the set of possible demand scenarios, and let φ (d) be a probability measure
+on D. To model the relationship between demand and inventory, we introduce a parameter, gs,
+which is deﬁned as the percentage increase or decrease in post-transfer demand (in terms of dollars
+5In our experience, this assumption is not overly unrealistic, since transportation itself requires only a day or two
+while the inventory often sits in storage at the destination store for at least a week.
+13
+===== PAGE 15 =====
+of retail inventory) associated with a $1 inbound or outbound inventory transfer. This relationship
+mirrors empirical observations while maintaining tractability; we discuss gs further in§5.3.
+There are two sets of decision variables in the subproblem. As before, bst,s∈S andt∈T , is a
+binary variable that takes the value 1 if stores is open on day t and 0 otherwise. Let b be a matrix
+of size|S|×| T| with elements bst. The second set of decision variables, xrs, represents the dollars
+of retail value inventory transferred from store r to store s at the outset of the ﬁrst time period.
+Letx be a matrix containing xrs∀r∈S and∀s∈S.
+Let zs be the pre-transfer beginning inventory at store s on the ﬁrst day of T . Let ζdst be the
+post-transfer beginning inventory in store s on day t under demand scenario d. Let ξdst be lost
+sales, i.e., the amount by which demand exceeds supply in store s on day t under demand scenario
+d. Let γst≥ 0 be the scaling of demand at store s at time t as a result of inventory transfers.
+The subproblem is Θ (m,D,φ (·)) =
+Maximizeb,x,ξ
+∑
+d∈D
+φ (d)
+∑
+s∈S
+∑
+t∈T
+[(1−mst) (γstdst−ξdst)]
+−
+∑
+s∈S
+∑
+t∈T
+cstbst−
+∑
+r∈S
+∑
+s∈S
+τrsxrs
+Subject to: γst = 1 ∀s∈S,∀t<l
+γst = 1 +gs
+[∑
+r∈S
+xrs−
+∑
+r∈S
+xsr
+]
+∀s∈S,∀t≥l
+∑
+r∈S
+xsr≤zs ∀s∈S
+ζds1 =zs−
+∑
+r∈S
+xsr ∀d∈D,∀s∈S
+ζdsl =ζds,l−1−γstds,l−1 +ξds,l−1 +
+∑
+r∈S
+xrs ∀d∈D,∀s∈S
+ζdst =ζds,t−1−γstds,t−1 +ξds,t−1 ∀d∈D,∀s∈S,∀t /∈{ 1,l}
+ξdst≥bst (γstdst−ζdst) + (1−bst)γstdst ∀d∈D,∀s∈S,∀t∈T
+bst≤bs,t−1 ∀s∈S,∀t> 1
+bst∈ B ∀s∈S,∀t∈T
+xrs≥ 0 ∀r∈S,∀s∈S
+ξdst≥ 0 ∀d∈D,∀s∈S,∀t∈T.
+14
+===== PAGE 16 =====
+The objective is expected revenue less store operating costs and transfer costs. We note here
+that incorporating markdown as a decision variable would drastically increase the nonlinearities
+in this problem, not just in the objective function but also within the constraints, since demand
+would become a function of markdown. The ﬁrst two constraints specify the eﬀect of transfers
+on demand. The third constraint ensures that a store does not transfer more than its beginning
+inventory.
+The fourth constraint calculates ﬁrst-period inventory as a result of transfers. The ﬁfth con-
+straint calculates inventory in period l as a result of transfers. In the special case l = 1 (i.e., no
+lead time), the fourth and ﬁfth constraints collapse to ζds1 = zs−∑
+r∈Sxsr +∑
+r∈Sxrs∀d∈ D,
+∀s∈S.
+The sixth constraint links inventory between periods. The seventh constraint calculates unsat-
+isﬁed demand. The ﬁnal constraint dictates that closed stores remain closed (while this constraint
+is not mandated by the general formulation introduced in §4, it is a common feature of store liqui-
+dations, so we incorporate it into our statement of the heuristic). Thus, the subproblem calculates
+the optimal inventory transfers and store closings for ﬁxed per-store markdown schedules subject
+to the aforementioned assumptions. This formulation easily accommodates instance-speciﬁc con-
+straints (e.g., store 1 is not allowed to close before day 30 due to an agreement with the store’s
+landlord) may be added to the subproblem.
+5.2 Relaxation Master Problem: Markdowns
+To treat the selection of a markdown schedule, we construct a master problem that models the
+relationship between price and demand. To do so, the master problem creates the demand scenarios
+used by the subproblem, where the scenarios are a function of markdowns and beginning inventory.
+The construction of these demand scenarios is detailed in§5.3. The master problem then maximizes
+the objective value of the subproblem over the set of possible markdowns.
+To reﬂect the fact that the master problem creates the subproblem’s demand scenarios, we
+introduce the notation D (m), which is the set of demand scenarios subject to a given markdown
+15
+===== PAGE 17 =====
+schedule,m. The probability measure on this demand set is φ (·|m). The master problem is
+Maximizem Θ (m,D (m),φ (·|m))
+Subject to: m∈M.
+We note that restrictions such as non-increasing markdowns are codiﬁed in M and that consumer
+reactions to markdowns are modeled in D (m) and φ (·|m). For our research, this model has been
+implemented using MATLAB for the master problem and IBM ILOG CPLEX for the subproblem.
+In our implementation, we solve the master problem via parallelized enumeration augmented by
+a straightforward branch and bound rule: when evaluating a particular markdown cadence, if the
+global maximum proﬁt is greater than the realized proﬁt on day t plus the full retail value of all
+remaining inventory, then the markdown cadence in question and all markdown cadences that are
+identical through day t must not be optimal.
+5.3 Demand Forecasting
+The majority of the parameters for both the dynamic program and the modiﬁed problem are
+usually provided to asset disposition ﬁrms or are readily obtained, such as store operating costs,
+beginning inventories, and transportation costs. Nonetheless, the distribution of demand may be
+diﬃcult to determine, particularly because stores in liquidation often behave radically diﬀerently
+than stores in normal operation. In this section, we present a statistical model for forecasting
+demand during a store liquidation. This forecasting model has been ﬁt on historical data provided
+by GBG comprising 43 retail chain liquidations since 2006, involving 2,516 stores and approximately
+$7.5B of inventory at retail value.
+The literature oﬀers formal tools for forecasting demand in the case of product liquidation,
+including those proposed by Smith and Achabal (1998) and Bitran et al. (1998). Our forecasting
+model diﬀers from prior research for two key reasons. First, as discussed in§2, inventory is managed
+by retail value rather than by count during a store liquidation. Second, as illustrated in Figure 1,
+demand during a store liquidation can depart signiﬁcantly from demand during normal operations.
+Therefore, our method incorporates information not only about a store’s prior performance but
+16
+===== PAGE 18 =====
+also about how consumers have responded to prior liquidations.
+During a store liquidation, managers track sales performance in terms of multipliers, which
+reﬂect the revenue lift due to the store liquidation. Let Revenue st be the liquidation revenue of
+store s on day t. Let Last-Year Revenuest be the revenue of store s during normal operations one
+year prior to day t. Then the multiplier on day t at store s is
+Multiplierst = Revenuest
+Last-Year Revenuest
+.
+It is useful to deﬁne the multiplier over speciﬁc time periods. For instance, the multiplier at
+store s for an entire liquidation is
+Liquidation Multipliers =
+∑
+t∈T Revenuest∑
+t∈T Last-Year Revenuest
+,
+while the multiplier for the ﬁrst week of a sale is
+First-Week Multipliers =
+∑7
+t=1 Revenuest
+∑7
+t=1 Last-Year Revenuest
+.
+Further, the liquidation multiplier can be constructed at the chain level:
+Chain Liquidation Multiplier =
+∑
+s∈S
+∑
+t∈T Revenuest∑
+s∈S
+∑
+t∈T Last-Year Revenuest
+.
+To illustrate the challenge of forecasting demand during a store liquidation, consider the vari-
+ation in store performance exhibited in Figure 1. During the liquidation of the 59 jewelry stores
+depicted, certain stores performed roughly the same as they did in the prior year while many other
+stores more than tripled their prior year’s performance. The variance in multipliers demonstrates
+that stores in liquidation may behave diﬀerently than their prior performance or their peers’ results
+would indicate.
+We construct the demand forecasting model, which forecasts multipliers, as a function of store
+characteristics as well as current economic conditions. The store-level variables are beginning
+inventory, markdowns, store square footage, last-year sales, liquidation duration, and retail segment
+17
+===== PAGE 19 =====
+(e.g., apparel store or bookstore). When the model is ﬁt during a liquidation, we add realized store
+liquidation revenues.
+In order to account for local economic conditions, the model also employs data on the demo-
+graphics of the store’s neighborhood, which is determined by the store’s ZIP code. The United
+States Census Bureau provides the demographic data at the ZIP code level. Data from the 2000
+census are median household income, number of households, average household size, and number of
+houses for sale. Data from the 2007 economic census are the number of local business establishments
+as well as the average payroll of these businesses.
+To capture the state of the broader economy, the model uses the Thomson Reuters / University
+of Michigan consumer sentiment index. This index is used in favor of other indicators of economic
+activity because of its frequent (monthly) release. Other measures, such as the economic activity
+data released by the U.S. Bureau of Economic Analysis, yield similar insights about the relationship
+between liquidation demand and broader economic conditions but are released too infrequently for
+forecasting in practice. When estimating the forecasting model, we assign to a store the value of the
+consumer sentiment index that was released in the month prior to the month in which the store’s
+liquidation commenced; this ensures data availability when forecasting upcoming store liquidations.
+We propose a random eﬀects model where the clusters are individual retail liquidation events.
+For instance, when Borders Group ﬁled bankruptcy, it closed a set of stores beginning on February
+19, 2011. The outcome of Borders’ bankruptcy process required the liquidation of the remaining
+Borders stores; this latter sale began on July 22, 2011. Our forecasting model treats these two
+liquidations as separate clusters even though they are part of the same retail chain. The average
+number of stores per cluster is 58.51 with a minimum of 15 and a maximum of 371.
+The model may be ﬁt to an arbitrary time period, e.g., the ﬁrst day of liquidation, the sec-
+ond week of liquidation, or the overall liquidation. The variables that depend on time period—
+Multiplier, Beginning Inventory, Average Markdown, Remaining Days Open, and Last-Year Sales—
+18
+===== PAGE 20 =====
+are then measured over the speciﬁed time period. The model for store s in liquidation event v is:
+ln (Multipliervs) = + β1 ln (Beginning Inventoryvs) +β2 ln (Average Markdownvs)
++β3 ln (Store Square Footagevs) +β4 ln (Remaining Days Openvs)
++β5 ln (Last-Year Salesvs) +δ′ (Local Economic Variablesvs)
++κ ln (Consumer Sentimentv) + Event Random Eﬀectv
++ Segment Fixed Eﬀectv +ϵvs.
+(1)
+If the model is ﬁt during a liquidation, when sales over some set of days are available, we add a term
+to reﬂect obtained sales information, β6 ln (Current Salesvs). This variable is the sum of revenue
+over the speciﬁed set of days.
+This forecasting model is used to generate the demand distributions required by both the full
+dynamic program and the modiﬁed program. In the case of the relaxation subproblem, where
+we need an approximation of the relationship between demand and inventory, we let β1 represent
+the percent change in demand that results from a given percent change in inventory. Therefore,
+for store s, gs, the relationship between demand and inventory within the relaxation subproblem,
+is equal to β1
+zs , where zs is the store’s pre-transfer beginning inventory. When creating demand
+scenarios for the subproblem, the master problem treats the eﬀect of markdowns as deterministic.
+That is, the demand scenarios are generated by omitting the term β3 ln (Average Markdownsω).
+The markdown eﬀect dictated by β3 is then added to the demand scenarios as each markdown
+cadence is evaluated.
+To illustrate the accuracy of the forecasting method, we cross-validate the model by estimating
+the coeﬃcients on data from 42 of the 43 retail chains and then forecasting liquidation multipliers
+for the omitted chain. Figure 3 graphs store-level forecast ﬁrst-week multipliers against actual
+ﬁrst-week multipliers. Figure 4 graphs store-level forecast liquidation multipliers against actual
+liquidation multipliers, where the forecast incorporates data from the ﬁrst week of the liquidation.
+In both ﬁgures, we omit the largest 2% by actual ﬁrst-week and liquidation multipliers for visu-
+alization purposes. The coeﬃcients of determination for these two cross-validations are 72% and
+19
+===== PAGE 21 =====
+87%, respectively.
+As these forecasting results indicate, sales during the ﬁrst week of liquidation convey a great deal
+of information about sales throughout the liquidation, even though ﬁrst-week liquidation revenues
+are on average only 12.23% of overall revenues. This pattern has been observed in other retail
+contexts. For example, Fisher and Raman (1996) note that demand for fashion products early in
+a selling season is highly predictive of demand throughout the entire selling season.
+Although the store-level forecasts beneﬁt greatly from a small amount of realized sales infor-
+mation, the pre-liquidation forecasts are still useful. Figure 5 compares the accuracy of chain-level
+liquidation multiplier forecasts generated via this model to expert forecasts for 13 retail chain liq-
+uidations recorded by GBG (historical forecasts for the other liquidations in our database were not
+available). Across the sample of 13 liquidations, the forecasting model generates a 37% reduction
+in absolute deviation from actual multipliers in comparison to expert forecasts. Speciﬁcally, the
+cumulative absolute deviation of the expert forecasts is 2.71 while the cumulative absolute deviation
+of the statistical forecasts is 1.70.
+As this section illustrates, it is possible to generate statistical forecasts of store-level multipliers,
+which are a proxy for demand, both in advance of and during a store liquidation. These forecasts
+may be used in conjunction with the heuristic program as a decision aid. While we focus on
+applying these forecasts to improve operational decisions, we note that our research partner also
+has employed this forecasting model to improve performance during the pre-liquidation bidding
+and sales process. In the next section, we discuss the performance of this solution methodology.
+6 Applications
+In this section, we discuss results and insights gleaned through the application of our methods to
+recent store liquidations. The examples are chosen to highlight each of the three key operational
+levers—inventory transfers, markdowns, and store closings—while also illustrating how our method
+accommodates the quirks that are inherent to each liquidation event. We discuss the monetary
+beneﬁt of applying our methods to augment current liquidation practice (see §2 for an overview of
+current practice). We also provide general insights for practitioners operating store liquidations.
+20
+===== PAGE 22 =====
+6.1 Application: Markdowns
+The ﬁrst example is the liquidation of stores owned by a branded apparel manufacturer that also
+sold its merchandise through other outlets, primarily department stores. The company’s stores
+contributed a small portion of its revenues (less than 5%) and were located near department stores
+that also sold the company’s products. The apparel manufacturer’s managers elected not to al-
+low inventory transfers during liquidation, since transferring large amounts of inventory into their
+own stores risked harming their relationship with nearby department stores. Further, because of
+the apparel manufacturer’s leases with the malls in which its stores were located, there was no
+opportunity to close stores early. Thus, the focus in this case was on markdown optimization.
+Using historical information collected during the liquidation of 84 of the company’s stores, we
+ﬁt our forecasting model (Equation 1) to estimate store-level demand distributions on a daily basis
+as a function of markdowns, inventory levels, and the other forecasting variables. We then use
+these distributions to simulate the performance of both the actual managerial decisions and the
+relaxed model’s decisions, assuming in both cases that markdown schedules are ﬁxed prior to the
+sale6 and that transfers and early closings are prohibited. We thus conservatively ﬁnd that the
+beneﬁt of markdown optimization in this context is a 5.6% increase in revenue at the chain level,
+which equates to a 7 percentage point increase in net recovery on the cost value of the inventory
+sold. Further, the formal method outperformed the actual decisions during 89% of the 100,000
+liquidations simulated, even in the absence of recourse.
+Figure 8 graphs the actual managers’ decisions against the relaxed model’s revenue maximizing
+decisions aggregated to the chain level. This ﬁgure illustrates two patterns that we have seen across
+many of the cases we have studied. First, the model generally recommends lower markdowns than
+managers use in practice toward the end of a liquidation , a ﬁnding in keeping with the results
+obtained by Smith and Achabal (1998). By using lower markdowns, the model tends to assume
+leftover inventory; in this case, the model leaves slightly over 12% of the chain’s inventory unsold
+on average. Intriguingly, adding 100% sell-through constraints to the optimization model generates
+markdowns that are remarkably similar to those chosen by managers at the asset disposition ﬁrm,
+6We ﬁx markdown decisions from the formal tool because the managers’ obtained decisions also do not vary.
+21
+===== PAGE 23 =====
+as Figure 8 illustrates. Broadly, it appears that liquidators exhibit a “sell-through bias.” Our
+industry collaborators argue that this is due to the perception of their clients—both merchants and
+courts—that unsold inventory demonstrates poor performance.
+Second, the formal method prescribes larger markdowns at the outset of a liquidation than
+liquidators use in practice. We speculate that this result is due to the tendency for managers to
+seek to “capitalize” on the highest quality inventory in a store by selling it at a low discount. In
+contrast, we recommend using slightly larger discounts early in a sale in order to beneﬁt from the
+substantial volume of traﬃc at the outset of a liquidation event.
+6.2 Application: Store Closings
+Our next example is a going-out-of-business sale conducted for a chain of discount department
+stores. This application illustrates the beneﬁts of accurate demand forecasting in the presence of
+store closing constraints. The liquidation was limited to 60 days, and nine of the chain’s roughly
+forty stores were subject to a lease constraint that rent would have to be paid through the 60 th
+day of the sale if the stores were occupied on the 46 th day.7 Critically, landlords had to be notiﬁed
+two weeks in advance of a store’s closing. Initially, the operating plan was to run these nine stores
+through day 60 of the liquidation. Two weeks into the liquidation, the decision support model
+indicated that a combination of inventory transfers and steeper markdowns at certain stores would
+allow the nine stores to close in advance of the 46 th day of the liquidation. The model provided
+enough lead time that all landlords could be notiﬁed ahead of the deadline.
+Operating those nine stores from day 46 to day 60 would have added $1.5M of operating
+expenses, which was roughly 160% of the projected revenue from days 46 to 60 at these stores. In
+fact, the costs were 141% of the actual revenues from days 31 through 45. Since revenues tend to
+decrease over the course of a store liquidation, it is likely that operating (or just leasing) the stores
+for the next 15 days would have been highly unproﬁtable. This example shows the importance
+of forecasting and reacting to demand in the face of constraints imposed by a retailer’s extant
+contracts. Further, this application highlights the value of pricing at the store level rather than at
+7The 46th day of the liquidation was the ﬁrst day of a month, and the stores’ leases had “in for one, in for ﬁfteen”
+clauses.
+22
+===== PAGE 24 =====
+the chain level.
+In order to illustrate how the optimal markdowns change as the number of days a store stays
+open decreases, Figure 8 includes the optimal markdown schedule for a shorter version of the liqui-
+dation discussed in§6.1. As the ﬁgure shows, the optimal markdowns for the abridged liquidation,
+which is shortened by 15 days, are higher at both the outset and the end of the sale. Even though
+the liquidation duration is decreased by 35%, the optimal markdowns are still substantially lower
+than the sell-through and actual markdowns. The resulting revenue is 12% lower on average.
+6.3 Application: Inventory Transfers
+The ﬁnal example application treats the liquidation of a major retail chain involving 400 stores
+holding around $600 million of inventory. GBG liquidated this chain as a joint venture with other
+asset disposition ﬁrms. Because of the reporting structure established for the joint venture, GBG
+did not have direct control over markdowns and closings. Nonetheless, in this case, GBG managers
+were able to transfer inventory among stores.
+Three weeks into the store liquidation, we solved the relaxed program using the latest avail-
+able information (i.e., including early liquidation sales) to determine inventory transfers. Using
+our model, we generated a transfer schedule for roughly $20 million of inventory. The transfers
+commenced during the fourth week of the liquidation.
+To estimate the impact of a transfer on the sales of any given store, we observe how the post-
+transfer revenues of an aﬀected store perform relative to the average revenue of a comparison
+group. We construct a set of comparison stores for each aﬀected store by selecting ten stores with
+similar sales during the pre-transfer period that were not subject to inbound or outbound transfers.8
+Speciﬁcally, we sort all outlets by pre-transfer revenues and then create a transfer store’s comparison
+group by selecting the ﬁve non-transfer stores above and below the transfer store. We note that
+only the date at which the inventory leaves a donor store is recorded in our data. That is, we do not
+know the date on which the merchandise arrived or was displayed in the receiving store. Therefore,
+the post-transfer period includes the transfer time.
+8The results do not change when stores are matched on inventory.
+23
+===== PAGE 25 =====
+Figure 6 illustrates one inventory transfer. The focal store received $396,075 of inventory at
+retail value. This ﬁgure shows both the average diﬀerence and the cumulative diﬀerence between
+the revenues of the focal store and the average revenues of its comparison stores. The vertical line
+indicates the date when inventory left the donor store. When the transfer is executed, the focal
+store has generated revenues similar to those of the comparison stores. By the end of the sale, the
+focal store has generated roughly $80,000 of incremental revenue in comparison to its peer group.
+Applying this method to all transfers yields an estimate of the net impact of the transfers.
+Figure 7 charts the potential eﬀect of transfers on sales as the cumulative diﬀerence between the
+revenue of a store subject to a transfer and the average revenue of its peer group amassed between
+the execution of the transfer and the end of the sale. The lines of ﬁt, both of whose slopes are
+signiﬁcant at the 90% level, indicate that the beneﬁts of the inbound inventory transfers outweighed
+the costs of removing inventory from the donor stores. Using this straightforward regression analysis
+and incorporating the operating expenses of the transfers, we estimate that the proﬁt increase was
+over 2.5% of the retail chain liquidation’s overall revenues. Further, net recovery on the cost value
+of the inventory increased 2 percentage points.
+This application demonstrates the importance of reading and reacting to demand at the outset
+of a store liquidation. By matching supply and demand, managers sell merchandise at lower
+markdowns and thus increase revenues. This example also illustrates the importance of transfer lag
+to the dynamic program and the modiﬁed problem. Figure 6 shows that it takes a number of days
+for the transferred inventory to begin aﬀecting the focal store’s sales. Since markdowns increase
+over time, large transfer lags can nullify the beneﬁt of inventory transfers.
+In this section, we discussed example applications of our methods for increasing the eﬃciency
+of retail chain liquidation. We argue that these applications, which span disparate retail segments,
+provide evidence of the beneﬁt of these techniques. Further, these applications provide general
+insights for managers operating store liquidations, demonstrating: (i) the importance of reading and
+reacting to demand at the outset of a liquidation, (ii) the potential beneﬁts of applying markdown
+optimization and leaving inventory unsold, (iii) that practitioners should employ larger markdowns
+at the outset of a sale and smaller markdowns at the end of a sale, and (iv) how a scientiﬁc
+24
+===== PAGE 26 =====
+approach to store liquidation can help managers respond to contractual limitations. We now turn
+to our closing remarks.
+7 Conclusion
+Store liquidation is important for ﬁrms and investors, aﬀecting everything from retailer performance
+to how retailers are ﬁnanced and how investors are compensated (Foley et al., 2012). Further, store
+liquidation is fundamental to innovation in the retail sector, since extracting value from defunct
+stores and ﬁrms is a key step in the process of creative destruction (Schumpeter, 2008). In this
+paper, we introduce methods for increasing the eﬃciency of store liquidations operated by retail
+asset disposition ﬁrms, and we thus extend management science techniques to a consequential
+problem that has not yet been addressed by the literature. These methods were developed through
+a collaboration with GBG, a prominent liquidator, during the liquidation of over $3B of inventory.
+Although the literature has addressed markdowns and inventory transfers in the context of
+liquidating seasonal or fashion goods, the store liquidation problem diﬀers signiﬁcantly, both math-
+ematically and managerially. First, during a store liquidation, managers must make not only pricing
+and inventory decisions but also store closing decisions. Second, customers behave diﬀerently dur-
+ing a store liquidation than they do during normal operations, which makes demand during a store
+liquidation diﬃcult to predict. Third, each store liquidation may involve idiosyncratic constraints,
+which are often due to legal and lease requirements. Finally, when asset disposition ﬁrms operate
+liquidations in practice, they work with inventory at the dollar rather than unit level.
+We introduce a dynamic program that generates an operating plan for an asset disposition
+ﬁrm by jointly optimizing markdowns, inventory transfers, and store closings. Since the dynamic
+program is intractable for reasonable problem instances, we introduce a mixed-integer program-
+ming relaxation of the dynamic program that can be solved readily using commercial optimization
+software. This relaxation is designed to easily incorporate the types of constraints that retail asset
+disposition ﬁrms face, e.g., the requirement that stores in one state close by 60 days while stores
+in another state close by 90 days. We also introduce a demand forecasting model for supplying
+demand distributions to the dynamic program and the modiﬁed program. The relaxed problem and
+25
+===== PAGE 27 =====
+the demand forecasting model constitute a practical solution methodology that has been applied
+during a number of recent store liquidations.
+We demonstrate the eﬀectiveness of this solution methodology using three recent applications.
+In each of these contexts, we show that the method provided a signiﬁcant improvement over prior
+practice. Moreover, we discuss general insights for managers in the store liquidation industry. It
+is our hope that these techniques will be beneﬁcial to practitioners at asset disposition ﬁrms that
+operate retail chain liquidations.
+Acknowledgments We are indebted to the generosity of our research partners. Kevin Kuli-
+nowski, Michael Frieze, Frank Morton, Ann Merrill, Tricia Parent, Jeﬀ Bloomberg, Tom Lon-
+abocker, Sondra Yee, and Mark Pecora of Gordon Brothers Group have taught us a great deal
+about retail liquidation. Ward Mooney of Crystal Financial has been instrumental in helping us
+understand the retail bankruptcy process. David Berman of Riemer & Braunstein has provided
+details on the legal facets of retailer bankruptcy.
+References
+Alan, Y. and Gaur, V. (2012), ‘Operational investment and capital structure under asset based
+lending’.
+Balakrishnan, A., Pangburn, M. S. and Stavrulaki, E. (2004), ‘”stack them high, let ’em ﬂy”:
+Lot-sizing policies when inventories stimulate demand’, Management Science 50(5), 630–644.
+Balakrishnan, A., Pangburn, M. S. and Stavrulaki, E. (2008), ‘Integrating the promotional and
+service roles of retail inventories’,Manufacturing and Service Operations Management 10(2), 218–
+235.
+Bitran, G. and Caldentey, R. (2003), ‘An overview of pricing models for revenue management’,
+Manufacturing and Service Operations Management 5(3), 203–229.
+Bitran, G., Caldentey, R. and Mondschein, S. (1998), ‘Coordinating clearance markdown sales of
+seasonal products in retail chains’, Operations Research 46(5), 609–624.
+Bonami, P., Biegler, L. T., Conn, A. R., Cornu´ ejols, G., Grossmann, I. E., Laird, C. D., Lee, J.,
+Lodi, A., Margot, F., Sawaya, N. and W¨ achter, A. (2008), ‘An algorithmic framework for convex
+mixed integer nonlinear programs’, Discrete Optimization 5(2), 186–204.
+26
+===== PAGE 28 =====
+Bustillo, M. (2012), ‘Best Buy Forced to Rethink Big Box’, Wall Street Journal p. B1.
+Cachon, G. P. and Swinney, R. (2009), ‘Purchasing, pricing, and quick response in the presence of
+strategic consumers’, Management Science 55(3), 497–511.
+Caro, F. and Gallien, J. (2007), ‘Dynamic assortment with demand learning for seasonal consumer
+goods’, Management Science 53(2), 276–292.
+Caro, F. and Gallien, J. (2010), ‘Inventory management of a fast-fashion retail network’,Operations
+Research 58(2), 257–273.
+Caro, F. and Gallien, J. (forthcoming), ‘Clearance pricing optimization for a fast-fashion retailer’,
+Operations Research .
+Checkler, J. (2011), ‘Judge OKs Borders Liquidation’, Wall Street Journal p. B7.
+Dana, J. D. and Petruzzi, N. C. (2001), ‘Note: The newsvendor model with endogenous demand’,
+Management Science 47(11), 1488–1497.
+Fisher, M. L. and Raman, A. (1996), ‘Reducing the cost of demand uncertainty through accurate
+response to early sales’, Operations Research 44(1), 87–99.
+Foley, C. F., Raman, A. and Craig, N. C. (2012), Inventory-Based Lending Industry Note, Harvard
+Business School Case No. 612-057 , Harvard Business School Publishing, Boston, MA.
+Gallego, G., Phillips, R. and ˚Aˇ zahin, O. (2008), ‘Strategic Management of Distressed Inventory’,
+Production and Operations Management 17(4), 402–415.
+Gallego, G. and Van Ryzin, G. J. (1994), ‘Optimal dynamic pricing of inventories with stochastic
+demand over ﬁnite horizons’, Management Science 40(8), 999–1020.
+Gaur, V., Kesavan, S. and Raman, A. (2013), ‘Retail inventory: Managing the canary in the coal
+mine’, Working Paper .
+Grossmann, I. E. (2002), ‘Review of nonlinear mixed-integer and disjunctive programming tech-
+niques’, Optimization and Engineering 3(3), 227–252.
+Lahart, J. (2011), ‘Investors: The Only Thing We Have to Fear Is Sears Itself’, Wall Street Journal
+p. C12.
+LBO Wire (2012), ‘Deal Closure Announcements February 27 - March 2’.
+Mattioli, D. (2011), ‘For Syms, a Final Markdown’, Wall Street Journal p. B1.
+Ordonez, J., Bandler, J. and Smith, R. A. (2001), ‘Montgomery ward’s close to hit landlords, rivals’,
+Wall Street Journal p. A3.
+Schumpeter, J. A. (2008), Capitalism, Socialism and Democracy , HarperCollins, New York, NY.
+Smith, S. A. and Achabal, D. D. (1998), ‘Clearance pricing and inventory policies for retail chains’,
+Management Science 44(3), 285–300.
+27
+===== PAGE 29 =====
+Su, X. and Zhang, F. (2009), ‘On the Value of Commitment and Availability Guarantees When
+Selling to Strategic Consumers’, Management Science 55(5), 713–726.
+Trachtenberg, J. A. (2013), ‘B&N to Cut Up to 33% Of Its Retail In a Decade’, Wall Street Journal
+p. B1.
+Yang, S. A. and Birge, J. R. (2011), How inventory is (should be) ﬁnanced: Trade credit in supply
+chains with demand uncertainty and costs of ﬁnancial distress.
+Zimmerman, A. (2009), ‘Corporate News: Home Depot Shutters Expo’, Wall Street Journal p. B3.
+28
+===== PAGE 30 =====
+Figures
+Figure 1: Liquidation Multipliers Across Segments
+●
+●
+●
+●
+●
+●
+●
+●
+●●
+●●
+●
+●
+●●
+Apparel Books Household Jewelry
+1
+2
+3
+4
+5
+6
+117 Stores 200 Stores 44 Stores 59 Stores
+Liquidation Multiplier
+Figure 2: Realized Markdowns for Retailers in Six Segments
+20406080100Chain Markdown (%)020406080100Time (%)ApparelBooksElectronicsDepartmentHouseholdJewelry
+29
+===== PAGE 31 =====
+Figure 3: Actual and Forecast First-Week Multipliers Prior to Liquidation
+0123456Store Forecast First-Week Multiplier0123456Store Actual First-Week Multiplier
+Figure 4: Actual and Forecast Liquidation Multipliers Using First-Week Sales
+01234Store Forecast Multiplier01234Store Actual Multiplier
+30
+===== PAGE 32 =====
+Figure 5: Actual Chain Multipliers Versus Forecast and Planned Chain Multipliers
+0123Actual Chain Liquidation Multiplier0123Expert Forecast Chain Liquidation MultiplierStatistical Forecast Chain Liquidation Multiplier
+Figure 6: Example Inventory Transfer
+$396,075 Departs Donor Store for Focal Store020406080Net Sales ($K)0204060
+-20020406080Cumulative Difference ($K)0102030405060DayFocal StorePeer Stores
+31
+===== PAGE 33 =====
+Figure 7: The Eﬀect of Chain-Wide Inventory Transfers
+-2000200400Potential Transfer Effect ($K)-1,000-50005001,000Inventory Transfer ($K)Outgoing TransfersIncoming TransfersNo Transfers
+Figure 8: Optimal Markdown Schedule for a Retail Chain
+20406080100Markdown (%)010203040DayActualOptimal100% Sell-ThroughAbridged Markdown
+32
