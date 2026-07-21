@@ -3,6 +3,7 @@ import Link from "next/link";
 import "./globals.css";
 import { LogoutButton } from "@/components/LogoutButton";
 import { Nav } from "@/components/Nav";
+import { DemoMask } from "@/components/DemoMask";
 
 export const metadata: Metadata = {
   title: "CORTEX — Mythos Retail Intelligence",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
+        <DemoMask />
         <header className="border-b border-line sticky top-0 z-50 backdrop-blur-md bg-ink/80">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
             <Link href="/" className="flex items-center gap-2 sm:gap-3 group shrink-0">
