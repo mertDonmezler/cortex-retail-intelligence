@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, fetchAllRows } from "@/lib/supabase";
 import { normalizeFile } from "@/lib/normalizers";
+import { canonicalWeek } from "@/lib/normalizers/week-parser";
+import type { WeekRange } from "@/lib/normalizers/week-parser";
 import type { Retailer, UnifiedRow } from "@/lib/normalizers/types";
 import { RETAILERS } from "@/lib/normalizers/types";
 
@@ -21,6 +23,18 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const retailer = form.get("retailer") as Retailer | null;
     const files = form.getAll("files") as File[];
+    // Opsiyonel hafta override'ı (YYYY-MM-DD, UI'dan). Tarihsiz/geç dosyalarda
+    // (Nezih, D&R-Kategori, Armağan W-NN) dosya adı çözümü yanlış haftaya
+    // yazabilir; kullanıcı seçimi her dosyaya uygulanır ve Pazartesi'ye hizalanır.
+    const weekParam = form.get("week");
+    let weekOverride: WeekRange | undefined;
+    if (typeof weekParam === "string" && weekParam.trim()) {
+      const w = weekParam.trim();
+      if (!ISO_DATE.test(w) || isNaN(new Date(w + "T00:00:00Z").getTime())) {
+        return NextResponse.json({ error: "Geçersiz hafta tarihi" }, { status: 400 });
+      }
+      weekOverride = canonicalWeek({ start: w, end: w });
+    }
 
     if (!retailer || !RETAILERS.includes(retailer)) {
       return NextResponse.json({ error: "Geçersiz perakendeci" }, { status: 400 });
@@ -36,7 +50,13 @@ export async function POST(req: NextRequest) {
     }
 
     const db = supabaseAdmin();
-    const results: { filename: string; week?: string; rows: number; status: string }[] = [];
+    const results: {
+      filename: string; week?: string; rows: number; status: string;
+      // Mutabakat: dosyanın toplamları + aynı firmanın ÖNCEKİ haftası (weekly_summary,
+      // yükleme öncesi hali). Büyük sapma → yanlış hafta/dosya erken yakalanır.
+      sales_qty?: number; stock_qty?: number;
+      prev_sales?: number | null; prev_stock?: number | null; warn?: string;
+    }[] = [];
 
     for (const file of files) {
       try {
@@ -49,7 +69,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
         const buf = await file.arrayBuffer();
-        const rows = normalizeFile(buf, retailer, file.name);
+        const rows = normalizeFile(buf, retailer, file.name, weekOverride);
         if (rows.length === 0) {
           results.push({ filename: file.name, rows: 0, status: "Boş / okunamadı" });
           continue;
@@ -78,7 +98,30 @@ export async function POST(req: NextRequest) {
           retailer, filename: file.name, week_start: week, rows: rows.length,
         });
 
-        results.push({ filename: file.name, week, rows: rows.length, status: "Yüklendi" });
+        // Mutabakat: dosya toplamları + önceki hafta kıyası (matview'daki eski state —
+        // önceki hafta zaten yüklüyse oradadır; refresh bu isteğin sonunda yapılır).
+        const fileSales = rows.reduce((a, r) => a + (Number(r.sales_qty) || 0), 0);
+        const fileStock = rows.reduce((a, r) => a + (Number(r.stock_qty) || 0), 0);
+        const pw = new Date(week + "T00:00:00Z");
+        pw.setUTCDate(pw.getUTCDate() - 7);
+        const { data: prevRow } = await db.from("weekly_summary")
+          .select("sales_qty, stock_qty")
+          .eq("retailer", retailer).eq("week_start", pw.toISOString().slice(0, 10))
+          .maybeSingle();
+        const prevSales = prevRow ? Number(prevRow.sales_qty) : null;
+        let warn: string | undefined;
+        if (prevSales != null && prevSales > 0) {
+          const d = Math.abs(fileSales - prevSales) / prevSales;
+          if (d > 0.6) warn = `Satış geçen haftadan %${Math.round(d * 100)} sapıyor — hafta/dosya doğru mu?`;
+        } else if (!prevRow) {
+          warn = "Önceki haftanın verisi yok — hafta seçimini bir kontrol et.";
+        }
+
+        results.push({
+          filename: file.name, week, rows: rows.length, status: "Yüklendi",
+          sales_qty: fileSales, stock_qty: fileStock,
+          prev_sales: prevSales, prev_stock: prevRow ? Number(prevRow.stock_qty) : null, warn,
+        });
       } catch (e: any) {
         console.error(`upload hatası (${file.name}):`, e);
         // Normalizer'ın domain mesajları (boş dosya, bilinmeyen format vb.) güvenli

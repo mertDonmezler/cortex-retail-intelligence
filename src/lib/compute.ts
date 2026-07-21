@@ -230,12 +230,26 @@ export interface ReorderRow {
   sku_name: string;
   barkod: string | null;
   avg_sales: number;    // son N haftanın haftalık ortalama satışı (hız)
+  ewma: number;         // üstel ağırlıklı hız (α=0.4; yeni haftalar baskın) — ivmeyi yakalar
+  trend: "up" | "down" | "flat"; // ewma / düz ortalama: ≥+%15 up, ≤−%15 down
   last_sales: number;   // son hafta satış
   stock_qty: number;    // son hafta stok
   sales_value: number;  // son hafta ciro (TL)
   cover: number | null; // kaç hafta yeter = stok / haftalık ort. satış
+  cover_ewma: number | null; // stok / EWMA hız — ivmelenen üründe daha gerçekçi (erken uyarı)
   weeks_used: number;   // ortalama kaç hafta üzerinden alındı
   status: "tükendi" | "acil" | "izle" | "yeterli";
+}
+
+// Üstel ağırlıklı hareketli ortalama: düz ortalama tüm haftalara eşit ağırlık
+// verir ve ivmeyi (yeni hızlanan/yavaşlayan ürünü) geç görür. EWMA son haftaları
+// baskın tutar: α=0.4'te son 2 hafta ağırlığın ~%64'ünü taşır. Pencerede satış
+// kaydı olmayan hafta gerçek 0'dır (ürün raftaydı, satmadı) — seri 0 ile doldurulur.
+export function ewmaVelocity(series: number[], alpha = 0.4): number {
+  if (!series.length) return 0;
+  let v = series[0];
+  for (let i = 1; i < series.length; i++) v = alpha * series[i] + (1 - alpha) * v;
+  return v;
 }
 
 // recentRows: son N haftanın tüm fact satırları; weeks: o N haftanın listesi.
@@ -246,12 +260,13 @@ export function reorderPriority(recentRows: FactRow[], weeks: string[], minAvg =
   const n = sorted.length;
   const inWindow = new Set(sorted);
 
-  type Agg = { sku: string; barkod: string | null; total: number; last: number; stock: number; val: number };
+  type Agg = { sku: string; barkod: string | null; total: number; last: number; stock: number; val: number; wk: Map<string, number> };
   const m = new Map<string, Agg>();
   for (const r of recentRows) {
     if (!inWindow.has(r.week_start)) continue;
-    const e = m.get(r.sku_name) ?? { sku: r.sku_name, barkod: r.barkod ?? null, total: 0, last: 0, stock: 0, val: 0 };
+    const e = m.get(r.sku_name) ?? { sku: r.sku_name, barkod: r.barkod ?? null, total: 0, last: 0, stock: 0, val: 0, wk: new Map() };
     e.total += r.sales_qty;
+    e.wk.set(r.week_start, (e.wk.get(r.week_start) ?? 0) + r.sales_qty);
     if (r.week_start === latest) {
       e.last += r.sales_qty;
       e.stock += r.stock_qty;
@@ -266,6 +281,12 @@ export function reorderPriority(recentRows: FactRow[], weeks: string[], minAvg =
     const avg = e.total / n; // haftalık ortalama (pencere boyu = n hafta)
     if (avg < minAvg) continue; // yalnızca anlamlı satanlar (gürültüyü ele)
     const cover = avg > 0 ? e.stock / avg : null;
+    // EWMA hız + trend: karar eşikleri (status) düz ortalamada KALIR (istikrarlı,
+    // test edilmiş); EWMA erken-uyarı sinyalidir — UI ivme okunu bundan çizer.
+    const series = sorted.map((w) => e.wk.get(w) ?? 0);
+    const ew = ewmaVelocity(series);
+    const ratio = avg > 0 ? ew / avg : 1;
+    const trend: ReorderRow["trend"] = ratio >= 1.15 ? "up" : ratio <= 0.85 ? "down" : "flat";
     let status: ReorderRow["status"];
     if (e.stock <= 0) status = "tükendi";          // satıyor ama stok bitti → kayıp satış
     else if ((cover ?? 0) < 1) status = "acil";    // ort. hıza bu hafta bile yetmez
@@ -274,8 +295,11 @@ export function reorderPriority(recentRows: FactRow[], weeks: string[], minAvg =
     out.push({
       sku_name: e.sku, barkod: e.barkod,
       avg_sales: Math.round(avg * 10) / 10,
+      ewma: Math.round(ew * 10) / 10,
+      trend,
       last_sales: e.last, stock_qty: e.stock, sales_value: e.val,
       cover: cover == null ? null : Math.round(cover * 10) / 10,
+      cover_ewma: ew > 0 ? Math.round((e.stock / ew) * 10) / 10 : null,
       weeks_used: n, status,
     });
   }
@@ -529,12 +553,20 @@ export function execOverview(summary: SummaryRow[], targetWeek?: string): ExecOv
   retailers.sort((a, b) => (b.has_data ? 1 : 0) - (a.has_data ? 1 : 0) || b.sales_qty - a.sales_qty);
 
   // "Haftanın yıldızı / dikkat geren" CİRO (TL) büyümesine göre; TL yoksa adet'e düşer.
-  const vPool = retailers.filter((r) => r.has_data && r.value_wow != null);
+  // Anlamlılık kapıları (kısmi/sığ haftalarda saçma sonuçları engeller):
+  //  • taban: ağ cirosunun %5'i veya 25K'nın büyüğü altındaki kanal aday olamaz
+  //    (15K'lık kanalın ±%20'si "haftanın yıldızı" haberi değildir);
+  //  • en az 2 karşılaştırılabilir firma — tek firmalı haftada iki kartın da
+  //    aynı firmayı göstermesi bilgi değil gürültüdür → ikisi de null.
+  const valFloor = Math.max(25000, netVal * 0.05);
+  const qtyFloor = Math.max(100, netQty * 0.05);
+  const vPool = retailers.filter((r) => r.has_data && r.value_wow != null && (r.sales_value ?? 0) >= valFloor);
   const usingVal = vPool.length > 0;
-  const pool = usingVal ? vPool : retailers.filter((r) => r.has_data && r.wow != null);
+  const pool = usingVal ? vPool : retailers.filter((r) => r.has_data && r.wow != null && r.sales_qty >= qtyFloor);
   const m = (r: ExecOverview["retailers"][number]) => (usingVal ? r.value_wow! : r.wow!);
-  const best = pool.length ? pool.reduce((a, b) => (m(b) > m(a) ? b : a)) : null;
-  const worst = pool.length ? pool.reduce((a, b) => (m(b) < m(a) ? b : a)) : null;
+  const enough = pool.length >= 2;
+  const best = enough ? pool.reduce((a, b) => (m(b) > m(a) ? b : a)) : null;
+  const worst = enough ? pool.reduce((a, b) => (m(b) < m(a) ? b : a)) : null;
 
   return {
     network: {

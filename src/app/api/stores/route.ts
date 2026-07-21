@@ -11,7 +11,25 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const retailer = searchParams.get("retailer");
   const week = searchParams.get("week");
-  if (!retailer) return NextResponse.json({ error: "retailer gerekli" }, { status: 400 });
+  // retailer verilmezse: keşif modu — mağaza-bazlı veri sağlayan perakendeciler
+  // ve her birinin EN GÜNCEL store haftası. Sayfa bununla default'unu seçer
+  // (hardcode yerine; bir perakendeci store göndermeyi bıraksa/başlasa kendini onarır).
+  if (!retailer) {
+    try {
+      const { data } = await supabase.from("weekly_summary")
+        .select("retailer, week_start").gt("store_count", 0)
+        .order("week_start", { ascending: false });
+      const latest = new Map<string, string>();
+      for (const r of data ?? []) if (!latest.has(r.retailer)) latest.set(r.retailer, r.week_start);
+      const retailers = [...latest.entries()]
+        .map(([retailer, week]) => ({ retailer, week }))
+        .sort((a, b) => (a.week < b.week ? 1 : -1)); // en taze hafta önce
+      return NextResponse.json({ discovery: true, retailers, default: retailers[0]?.retailer ?? null });
+    } catch (e: any) {
+      console.error("stores keşif hatası:", e);
+      return NextResponse.json({ discovery: true, retailers: [], default: null });
+    }
+  }
   try {
     const { data: weeks } = await supabase.from("weekly_summary")
       .select("week_start, store_count").eq("retailer", retailer)

@@ -10,6 +10,19 @@ interface UploadResult {
   week?: string;
   rows: number;
   status: string;
+  sales_qty?: number;
+  stock_qty?: number;
+  prev_sales?: number | null;
+  prev_stock?: number | null;
+  warn?: string;
+}
+
+// "593 (−15%)" — yüklenen toplam + önceki haftaya göre değişim (mutabakat hücresi).
+function withDelta(cur?: number, prev?: number | null): string {
+  if (cur == null) return "—";
+  if (prev == null || prev <= 0) return fmtInt(cur);
+  const d = ((cur - prev) / prev) * 100;
+  return `${fmtInt(cur)} (${d >= 0 ? "+" : ""}${d.toFixed(0)}%)`;
 }
 
 const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // Vercel serverless gövde limiti ~4.5MB
@@ -35,8 +48,32 @@ function fmtBytes(n: number): string {
 
 type StatusFilter = "all" | StatusKind;
 
+// Son 8 tamamlanmış haftanın Pazartesileri (yerel saat — UTC kaymasız).
+// Tarihsiz gelen dosyalarda (Nezih, D&R-Kategori) ya da güvenilmez etikette
+// (Armağan W-NN) kullanıcı haftayı buradan elle seçer; "" = dosyadan otomatik.
+function completedWeeks(count = 8): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  const now = new Date();
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - ((now.getDay() + 6) % 7) - 7); // son tamamlanmış haftanın Pzt'si
+  const d2 = (n: number) => String(n).padStart(2, "0");
+  const short = (d: Date) => d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  for (let i = 0; i < count; i++) {
+    const s = new Date(mon);
+    s.setDate(mon.getDate() - i * 7);
+    const e = new Date(s);
+    e.setDate(s.getDate() + 6);
+    out.push({
+      value: `${s.getFullYear()}-${d2(s.getMonth() + 1)}-${d2(s.getDate())}`,
+      label: `${short(s)} - ${short(e)} ${e.getFullYear()}`,
+    });
+  }
+  return out;
+}
+
 export default function UploadPage() {
   const [retailer, setRetailer] = useState(RETAILERS[0]);
+  const [week, setWeek] = useState(""); // "" = dosya adından otomatik
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<UploadResult[] | null>(null);
@@ -101,6 +138,7 @@ export default function UploadPage() {
     setResults(null);
     const fd = new FormData();
     fd.append("retailer", retailer);
+    if (week) fd.append("week", week);
     files.forEach((f) => fd.append("files", f));
     try {
       const r = await fetch("/api/upload", {
@@ -167,6 +205,27 @@ export default function UploadPage() {
                 {r}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mono text-xs text-txt-dim uppercase tracking-wider">Hafta</label>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            <select
+              value={week}
+              onChange={(e) => setWeek(e.target.value)}
+              className="card mono text-sm px-3 py-2 bg-ink-2 outline-none focus:border-neon"
+            >
+              <option value="" className="bg-ink-2">Otomatik (dosya adından)</option>
+              {completedWeeks().map((w) => (
+                <option key={w.value} value={w.value} className="bg-ink-2">{w.label}</option>
+              ))}
+            </select>
+            <span className="mono text-[11px] text-txt-dim max-w-sm">
+              Nezih ve D&R dosyaları tarihsiz gelir — haftayı elle seç.
+              Sonuçtaki "Hafta" kolonunu her zaman kontrol et; yanlışsa doğru haftayı
+              seçip yeniden yükle (aynı hafta üzerine yazılır).
+            </span>
           </div>
         </div>
 
@@ -315,7 +374,7 @@ export default function UploadPage() {
           ) : (
             <table>
               <thead>
-                <tr><th>Dosya</th><th>Hafta</th><th>Satır</th><th>Durum</th></tr>
+                <tr><th>Dosya</th><th>Hafta</th><th>Satır</th><th>Mutabakat (vs önceki hafta)</th><th>Durum</th></tr>
               </thead>
               <tbody>
                 {shownResults.map((r, i) => (
@@ -323,6 +382,14 @@ export default function UploadPage() {
                     <td className="mono">{r.filename}</td>
                     <td className="mono">{r.week ? new Date(r.week).toLocaleDateString("tr-TR") : "—"}</td>
                     <td className="mono">{r.rows.toLocaleString("tr-TR")}</td>
+                    <td className="mono text-xs">
+                      {r.sales_qty == null ? "—" : (
+                        <>
+                          <div>satış {withDelta(r.sales_qty, r.prev_sales)} · stok {withDelta(r.stock_qty, r.prev_stock)}</div>
+                          {r.warn && <div className="text-amber-400 text-[11px] mt-0.5">⚠ {r.warn}</div>}
+                        </>
+                      )}
+                    </td>
                     <td className={`mono ${kindOf(r.status) === "ok" ? "text-neon" : "text-red-400"}`}>
                       {r.status}
                     </td>

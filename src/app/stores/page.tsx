@@ -13,7 +13,10 @@ import {
 } from "@/components/Controls";
 import { fetchJson } from "@/lib/fetchJson";
 
-// Mağaza-bazlı veri sağlayan perakendeciler (DR eski format, Toyzz mağaza-bazlıysa)
+// Mağaza-bazlı veri yalnızca bazı perakendecilerde var ve zamanla değişir
+// (şu an Armağan canlı; DR 30 Mart'a kadar veriyordu, sonra formatı mağaza
+// kırılımını bıraktı). Bu yüzden default retailer hardcode DEĞİL: sayfa açılışta
+// /api/stores keşfiyle en güncel store verisine sahip perakendeciyi seçer.
 
 interface StoreRow {
   store: string;
@@ -34,12 +37,13 @@ function storeGroup(store: string): string {
 }
 
 export default function StoresPage() {
-  const [retailer, setRetailer] = useState("DR");
+  const [retailer, setRetailer] = useState(""); // keşif tamamlanınca dolar
+  const [storeRetailers, setStoreRetailers] = useState<{ retailer: string; week: string }[]>([]);
   const [week, setWeek] = useState<string>("");
   const [weeks, setWeeks] = useState<string[]>([]);
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [storeLevel, setStoreLevel] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // açılışta keşif beklenirken
   const [err, setErr] = useState<string>("");
   const [search, setSearch] = useState("");
   const [minSales, setMinSales] = useState(0);
@@ -61,7 +65,22 @@ export default function StoresPage() {
     finally { setDetLoading(null); }
   }
 
+  // Açılış keşfi (bir kez): mağaza verisi olan perakendecileri + en güncelini bul.
   useEffect(() => {
+    fetchJson(`/api/stores`)
+      .then((d) => {
+        if (d?.discovery) {
+          setStoreRetailers(d.retailers ?? []);
+          setRetailer((cur) => cur || d.default || "Armağan");
+        } else {
+          setRetailer((cur) => cur || "Armağan");
+        }
+      })
+      .catch(() => setRetailer((cur) => cur || "Armağan"));
+  }, []);
+
+  useEffect(() => {
+    if (!retailer) return; // keşif retailer'ı belirleyene kadar bekle (loading=true kalır)
     setLoading(true);
     setErr("");
     setOpenStore(null);
@@ -227,7 +246,9 @@ export default function StoresPage() {
           <div className="font-semibold">{retailer} mağaza-bazlı veri göndermiyor</div>
           <p className="text-txt-dim text-sm mt-2 mono">
             Bu perakendeci agrega (mağaza kırılımı olmayan) veri sağlıyor.
-            Mağaza zekası için DR'nin mağaza-bazlı haftalarını kullan.
+            {storeRetailers.length > 0
+              ? ` Mağaza kırılımı olan: ${storeRetailers.map((s) => s.retailer).join(", ")}.`
+              : ""}
           </p>
         </div>
       ) : rows.length === 0 ? (

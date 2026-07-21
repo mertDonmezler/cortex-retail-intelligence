@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
     for (const x of sources) {
       const pk = x.r.product_key, psf = x.psf, pull = x.pull;
       const value = x.noPrice ? 0 : Math.round(pull * psf);
-      if (x.intent === "obsolet") { routes.push({ ...base(x), action: "LIKIDASYON", qty: pull, target: null, toDepot: pull, value, reason: `Eski sezon (obsolet) — pack&hold maliyetli; markdown/likidasyon (erken-büyük indirim)` }); continue; }
+      if (x.intent === "obsolet") { routes.push({ ...base(x), action: "LIKIDASYON", qty: pull, dest: null, toDepot: pull, value, reason: `Eski sezon (obsolet) — pack&hold maliyetli; markdown/likidasyon (erken-büyük indirim)` }); continue; }
       // ölü/fazla → transfer (yalnız A/B + ihtiyaçlı hedef + değerli) yoksa depo
       let give = 0, tgt: any = null;
       if (x.abc === "A" || x.abc === "B") {
@@ -132,11 +132,11 @@ export async function GET(req: NextRequest) {
       const reason = x.intent === "olu"
         ? `${x.abc}-sınıf · ${x.xyz} · burada ölü (${base(x).velocity}/hf) → çek`
         : `${x.abc}-${x.xyz} · aşırı stok (${base(x).coverage} hf > hedef ${x.target} hf) → fazlasını çek`;
-      routes.push({ ...base(x), action, qty: pull, target: tgt, toDepot, value, reason: tgt ? `${reason}; ${tgt.retailer} alabilir` : reason });
+      routes.push({ ...base(x), action, qty: pull, dest: tgt, toDepot, value, reason: tgt ? `${reason}; ${tgt.retailer} alabilir` : reason });
     }
     for (const x of recs) {
-      if (x.intent === "sevk") routes.push({ ...base(x), action: "SEVK", qty: x.ship, target: null, toDepot: 0, value: 0, reason: x.stock <= 0 ? "Tükendi — satıyor, sevk et" : `Hedef altı (${base(x).coverage} hf < ${x.target} hf) — sevk et` });
-      else if (x.intent === "izle") routes.push({ ...base(x), action: "İZLE", qty: 0, target: null, toDepot: 0, value: 0, reason: `Yeni ürün (${x.wkP} hf veri) — karar için bekle` });
+      if (x.intent === "sevk") routes.push({ ...base(x), action: "SEVK", qty: x.ship, dest: null, toDepot: 0, value: 0, reason: x.stock <= 0 ? "Tükendi — satıyor, sevk et" : `Hedef altı (${base(x).coverage} hf < ${x.target} hf) — sevk et` });
+      else if (x.intent === "izle") routes.push({ ...base(x), action: "İZLE", qty: 0, dest: null, toDepot: 0, value: 0, reason: `Yeni ürün (${x.wkP} hf veri) — karar için bekle` });
     }
 
     const sumv = (a: any[]) => a.reduce((s, r) => s + (r.value || 0), 0);

@@ -21,29 +21,6 @@ export interface UnifiedRow {
 }
 
 // ── Sat-Öde (konsinye) fatura kalemi ──
-// CORTEX'in haftalık sell-through verisinden AYRI bir veri kümesi: bizim
-// perakendeciye kestiğimiz toptan faturanın kalem detayı (= "sevk" tarafı).
-// Her satır bir fatura kalemi: hangi cari, hangi ürün, kaç adet, ne tutar,
-// hangi tarihte faturalandı ve vadesi ne zaman. Tutarlar faturadaki HAM
-// değerlerdir (net = KDV hariç, total = KDV dahil); marj/net-kazanç dönüşümü
-// UYGULANMAZ — bu zaten bizim toptan satış faturamızdır.
-export interface ConsignmentLine {
-  retailer: Retailer;          // Cari adından eşlenen kanal (Toyzz/DR/Armağan/Huppaluppo/Nezih)
-  cari_adi: string;            // ham cari adı (fatura üzerindeki ünvan)
-  cari_kodu: string | null;
-  invoice_no: string;          // Fatura no
-  belge_no: string | null;     // Belge no
-  invoice_date: string;        // Tarih — ISO "YYYY-MM-DD"
-  due_date: string | null;     // Vade — ISO "YYYY-MM-DD"
-  line_no: number | null;      // Satır sayısı
-  stock_code: string | null;   // Stok kodu
-  product_name: string;        // Stok ismi
-  ana_grup: string | null;     // Ana grup (ör. Beşiktaş)
-  alt_grup: string | null;     // Alt grup (ör. Pre-Season)
-  qty: number;                 // Miktar
-  unit_price_net: number | null; // Net Br.fiy (KDV hariç birim)
-  net_amount: number;          // Net tutar (KDV hariç)
-  vat: number;                 // Toplam vergi (KDV)
-  total: number;               // Toplam (KDV dahil) = tahsil edilecek tutar
-  source_file: string;
-}
+// NOT: Sat-Öde/fatura (ConsignmentLine) katmanı 2026-07-21'de KALDIRILDI —
+// bu sistem satış-stok optimizasyonudur; fatura muhasebesi kapsam dışı.
+// DB'deki consignment_lines tablosu veri güvenliği için olduğu gibi duruyor.

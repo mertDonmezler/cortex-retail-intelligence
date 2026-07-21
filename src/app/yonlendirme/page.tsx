@@ -10,7 +10,7 @@ type Route = {
   action: "LIKIDASYON" | "TRANSFER" | "DEPO" | "SEVK" | "İZLE";
   retailer: string; sku_name: string; barkod: string; season: string; abc: string; xyz: string;
   stock: number; velocity: number; coverage: number | null; target: number; psf: number;
-  qty: number; target_route?: Target; toDepot: number; value: number; reason: string; noPrice?: boolean;
+  qty: number; dest?: Target; toDepot: number; value: number; reason: string; noPrice?: boolean;
   [k: string]: unknown;
 };
 
@@ -42,8 +42,7 @@ export default function YonlendirmePage() {
       .finally(() => setLoading(false));
   }, [mode]);
 
-  // API target objesi -> target_route (isim çakışması olmasın diye)
-  const routes: Route[] = useMemo(() => (data?.routes ?? []).map((r: any) => ({ ...r, target_route: r.target })), [data]);
+  const routes: Route[] = data?.routes ?? [];
   const sm = data?.summary;
   const firmOpts = useMemo(() => [...new Set(routes.map((r) => r.retailer))].sort((a, b) => a.localeCompare(b, "tr")), [routes]);
 
@@ -53,7 +52,7 @@ export default function YonlendirmePage() {
       if (action !== "all" && r.action !== action) return false;
       if (firms.length && !firms.includes(r.retailer)) return false;
       if (minVal > 0 && (r.value || 0) < minVal) return false;
-      if (needle && !`${r.sku_name} ${r.barkod} ${r.target_route?.retailer ?? ""}`.toLowerCase().includes(needle)) return false;
+      if (needle && !`${r.sku_name} ${r.barkod} ${r.dest?.retailer ?? ""}`.toLowerCase().includes(needle)) return false;
       return true;
     });
   }, [routes, action, firms, minVal, q]);
@@ -64,7 +63,7 @@ export default function YonlendirmePage() {
   const csvRows = useMemo(() => sorted.map((r) => ({
     aksiyon: ACT[r.action]?.label ?? r.action, firma: r.retailer, urun: r.sku_name, barkod: r.barkod,
     segment: `${r.abc}${r.xyz}`, sezon: r.season, stok: r.stock, hiz_hf: r.velocity, kapsam_hf: r.coverage ?? "", hedef_hf: r.target,
-    cek_sevk: r.qty, hedef: r.target_route ? `${r.target_route.retailer} (${r.target_route.qty})` : (r.action === "DEPO" ? "DEPO" : r.action === "LIKIDASYON" ? "LİKİDE" : ""),
+    cek_sevk: r.qty, hedef: r.dest ? `${r.dest.retailer} (${r.dest.qty})` : (r.action === "DEPO" ? "DEPO" : r.action === "LIKIDASYON" ? "LİKİDE" : ""),
     depoya: r.toDepot, psf_deger: r.value, sebep: r.reason,
   })), [sorted]);
   const csvCols = [
@@ -185,8 +184,8 @@ export default function YonlendirmePage() {
                     <td className="mono text-right text-[11px]" style={{ color: over ? "#ff5555" : "#7d927d" }}>{r.coverage == null ? "∞" : r.coverage} / {r.target} hf</td>
                     <td className="mono text-right font-bold">{r.qty ? fmtInt(r.qty) : "—"}</td>
                     <td className="mono text-[11px]">
-                      {r.action === "TRANSFER" && r.target_route ? (
-                        <span><span style={{ color: colorOf(r.target_route.retailer) }}>→ {r.target_route.retailer}</span> {fmtInt(r.target_route.qty)}{r.toDepot > 0 ? <span className="text-txt-dim"> +depo {fmtInt(r.toDepot)}</span> : ""}</span>
+                      {r.action === "TRANSFER" && r.dest ? (
+                        <span><span style={{ color: colorOf(r.dest.retailer) }}>→ {r.dest.retailer}</span> {fmtInt(r.dest.qty)}{r.toDepot > 0 ? <span className="text-txt-dim"> +depo {fmtInt(r.toDepot)}</span> : ""}</span>
                       ) : r.action === "LIKIDASYON" ? <span style={{ color: "#ff5555" }}>→ markdown/likide</span>
                         : r.action === "DEPO" ? <span style={{ color: "#f8b00b" }}>→ depo</span>
                         : r.action === "SEVK" ? <span style={{ color: "#1FF80B" }}>depodan sevk</span>

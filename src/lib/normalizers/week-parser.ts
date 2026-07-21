@@ -12,6 +12,14 @@ const TURKISH_MONTHS: Record<string, number> = {
   ekim: 10, kasım: 11, kasim: 11, aralık: 12, aralik: 12,
 };
 
+// Türkçe büyük İ, JS toLowerCase'inde bozulur: "HAZİRAN".toLowerCase() =
+// "hazi̇ran" (i + birleşik nokta U+0307) — sözlükteki "haziran" ile EŞLEŞMEZ ve
+// dosya sessizce yanlış haftaya (weekFromToday) düşer. Ay eşleştirmeden önce
+// İ→i / I→ı çevir, kalan birleşik noktaları temizle.
+function foldTr(s: string): string {
+  return s.replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase().replace(/̇/g, "");
+}
+
 function smartYear(targetMonth: number, fallbackYear?: number): number {
   const now = new Date();
   const fy = fallbackYear ?? now.getFullYear();
@@ -71,7 +79,7 @@ export function parseWeekFromFilename(filename: string): WeekRange | null {
     if (r) return r;
   }
 
-  const nameL = name.toLowerCase();
+  const nameL = foldTr(name);
   const monthsAlt = Object.keys(TURKISH_MONTHS).join("|");
 
   // 2a) İki Türkçe ay (ay/yıl geçişi)

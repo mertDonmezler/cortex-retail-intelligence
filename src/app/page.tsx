@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { WeeklySummary, Freshness, RETAILERS, RETAILER_COLORS, colorOf, fmtInt, fmtMoney, fmtDate, fmtDateTime, fmtPct } from "@/lib/format";
 import { RetailerCard } from "@/components/RetailerCard";
@@ -9,6 +9,9 @@ import { KpiHero } from "@/components/KpiHero";
 import { Heatmap } from "@/components/Heatmap";
 import { MultiChips, SegTabs } from "@/components/Controls";
 import { HealthBanner } from "@/components/HealthBanner";
+import { ActionPanel } from "@/components/ActionPanel";
+import { CashCalendar } from "@/components/CashCalendar";
+import { MailButton } from "@/components/MailButton";
 import { fetchJson } from "@/lib/fetchJson";
 
 export default function DashboardPage() {
@@ -37,8 +40,14 @@ export default function DashboardPage() {
         setSummary(sum);
         setFreshness((d?.freshness ?? []) as Freshness[]);
         setInsights(ins?.insights ?? []);
+        // Açılış haftası = son TAM hafta (5 firmanın da veri gönderdiği en yeni
+        // hafta). En güncel hafta çoğu gün kısmidir (2-3 firma) ve dashboard'ı
+        // yanıltıcı toplamlar + anlamsız deltalarla açıyordu. Kısmi haftalar
+        // dropdown'dan hâlâ seçilebilir — o zaman KISMİ rozeti uyarır.
         const weeks = [...new Set(sum.map((s) => s.week_start))].sort();
-        if (weeks.length) setWeek(weeks[weeks.length - 1] as string);
+        const firmCount = (w: string) => new Set(sum.filter((s) => s.week_start === w).map((s) => s.retailer)).size;
+        const full = [...weeks].reverse().find((w) => firmCount(w) >= RETAILERS.length);
+        if (weeks.length) setWeek((full ?? weeks[weeks.length - 1]) as string);
       })
       .catch((e) => {
         // Gerçek arızayı gizleme: hatayı göster, state'leri güvenli boş default'a çek
@@ -82,25 +91,9 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value);
   }, [summary, week, visibleSet]);
 
-  // Ağ KPI delta: seçili hafta vs. önceki hafta (yalnız görünür perakendeciler).
-  // Önceki hafta = weeks dizisinde (azalan) seçili haftanın bir sonrası.
-  const kpiDelta = useMemo(() => {
-    const prevWeek = (() => {
-      const i = weeks.indexOf(week);
-      return i >= 0 && i + 1 < weeks.length ? weeks[i + 1] : null;
-    })();
-    const agg = (wk: string | null) => {
-      if (!wk) return null;
-      const rows = summary.filter((s) => s.week_start === wk && visibleSet.has(s.retailer));
-      if (!rows.length) return null;
-      const qty = rows.reduce((a, s) => a + Number(s.sales_qty), 0);
-      const val = rows.reduce((a, s) => a + Number(s.sales_value ?? 0), 0);
-      const stock = rows.reduce((a, s) => a + Number(s.stock_qty), 0);
-      const st = qty + stock > 0 ? (qty / (qty + stock)) * 100 : 0;
-      return { qty, val, st };
-    };
-    return { cur: agg(week), prev: agg(prevWeek), prevWeek };
-  }, [summary, week, weeks, visibleSet]);
+  // (Eski "Ağ KPI" delta şeridi kaldırıldı — aynı sayıları KPI kartlarının
+  // altında ikinci kez basıyordu ve kohort gözetmeden karışık-firma kıyası
+  // yapıyordu. Deltalar artık KpiHero içinde, aynı-firma kohortuyla.)
 
   if (loading) return <Loading />;
   if (err) return <ErrorBox msg={err} />;
@@ -143,6 +136,7 @@ export default function DashboardPage() {
               <option key={w} value={w} className="bg-ink-2">{fmtDate(w)}</option>
             ))}
           </select>
+          <MailButton week={week} />
           <a
             href={`/api/export?week=${encodeURIComponent(week)}`}
             className="mono text-xs px-4 py-2 rounded-lg bg-neon text-ink font-bold hover:bg-neon-dim transition-colors"
@@ -172,35 +166,34 @@ export default function DashboardPage() {
         </span>
       </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-        <KpiHero summary={summary} week={week} />
-      </motion.div>
+      <SectionTitle label="DURUM" />
 
-      {/* İSTEMCİ TARAFI: seçili hafta vs. önceki hafta — görünür perakendeciler için ağ KPI delta rozetleri. */}
-      <KpiDeltaStrip delta={kpiDelta} visibleCount={visible.length} />
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <KpiHero summary={summary} week={week} visible={visible} />
+      </motion.div>
 
       {/* İSTEMCİ TARAFI: Ağ payı — seçili haftada her görünür perakendecinin net ciro payı (yatay bar). */}
       <NetworkShare rows={shareRows} week={week} />
 
-      {(overview?.best || overview?.worst) && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {overview?.best && (
-            <div className="card p-5 border-l-4" style={{ borderLeftColor: "#1FF80B" }}>
-              <div className="mono text-xs text-txt-dim">HAFTANIN YILDIZI ▲</div>
-              <div className="text-xl font-bold mt-1" style={{ color: RETAILER_COLORS[overview.best.retailer] }}>{overview.best.retailer}</div>
-              <div className="mono text-sm text-neon">{fmtPct(overview.best.wow)} haftalık büyüme</div>
-            </div>
-          )}
-          {overview?.worst && (
-            <div className="card p-5 border-l-4" style={{ borderLeftColor: "#ff5555" }}>
-              <div className="mono text-xs text-txt-dim">DİKKAT ÇEKEN ▼</div>
-              <div className="text-xl font-bold mt-1" style={{ color: RETAILER_COLORS[overview.worst.retailer] }}>{overview.worst.retailer}</div>
-              <div className="mono text-sm text-red-400">{fmtPct(overview.worst.wow)} haftalık değişim</div>
-            </div>
-          )}
-        </motion.div>
+      {/* Yıldız/Dikkat — tek ince satır (iki koca kart yer israfıydı). Sunucu tarafı
+          anlamlılık kapısından geçer: ciro tabanı + ≥2 karşılaştırılabilir firma;
+          aynı firma iki rolde olamaz (kısmi haftalarda ikisi de Huppaluppo çıkıyordu). */}
+      {overview?.best && overview?.worst && overview.best.retailer !== overview.worst.retailer && (
+        <div className="card px-4 py-3 flex items-center gap-4 flex-wrap mono text-sm">
+          <span className="text-[10px] text-txt-dim tracking-wider">HAFTANIN YILDIZI / DİKKAT</span>
+          <span>
+            ▲ <span className="font-bold" style={{ color: RETAILER_COLORS[overview.best.retailer] }}>{overview.best.retailer}</span>{" "}
+            <span className="text-neon">{fmtPct(overview.best.wow)}</span>
+          </span>
+          <span>
+            ▼ <span className="font-bold" style={{ color: RETAILER_COLORS[overview.worst.retailer] }}>{overview.worst.retailer}</span>{" "}
+            <span className="text-red-400">{fmtPct(overview.worst.wow)}</span>
+          </span>
+          <span className="text-[10px] text-txt-dim">ciro WoW · kendi geçen haftasına göre</span>
+        </div>
       )}
+
+      <SectionTitle label="KARAR MERKEZİ" />
 
       {topInsights.length > 0 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
@@ -229,7 +222,15 @@ export default function DashboardPage() {
         </motion.div>
       )}
 
-      <FreshnessStrip freshness={freshness} latestWeek={latestWeek} sort={freshSort} onSort={setFreshSort} />
+      {/* Aksiyon Zekâsı — /api/routing üstünden haftalık yapılacaklar (SEVK + ÇEK). */}
+      <ActionPanel />
+
+      {/* Nakit Takvimi — satış verisi + kanal vadesinden tahsilat projeksiyonu.
+          (Sat-Öde sayfası kaldırıldı; bu bileşen faturaya değil weekly_summary'ye
+          dayandığı için satış-stok kapsamında kaldı ve dashboard'a taşındı.) */}
+      <CashCalendar />
+
+      <SectionTitle label="DETAY" />
 
       <div>
         <div className="flex items-baseline justify-between mb-3">
@@ -257,6 +258,38 @@ export default function DashboardPage() {
 
       <TrendChart summary={summary} />
       <Heatmap summary={summary} />
+
+      {/* Tazelik en altta ve katlı — "kim geride" bilgisini Veri Sağlığı zaten
+          özetliyor; buradaki ayrıntı (hafta sayısı/son import) isteyene açılır. */}
+      <Collapse title="Veri Tazeliği · firma bazında ayrıntı">
+        <FreshnessStrip freshness={freshness} latestWeek={latestWeek} sort={freshSort} onSort={setFreshSort} />
+      </Collapse>
+    </div>
+  );
+}
+
+// İnce bölüm ayracı — dashboard'ı DURUM → KARAR MERKEZİ → DETAY bölgelerine
+// ayırır; göz akışına hiyerarşi verir, kutu kalabalığını böler.
+function SectionTitle({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2 select-none">
+      <span className="mono text-[10px] tracking-[0.3em] text-txt-dim/70">{label}</span>
+      <span className="flex-1 h-px bg-line/60" />
+    </div>
+  );
+}
+
+// Katlanabilir bölüm — ağır/ikincil blokları varsayılan kapalı tutar.
+function Collapse({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card overflow-hidden">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-neon/5 transition-colors">
+        <span className="mono text-xs tracking-wider text-txt-dim">{title}</span>
+        <span className="mono text-xs text-txt-dim shrink-0">{open ? "▾ gizle" : "▸ aç"}</span>
+      </button>
+      {open && <div className="border-t border-line/60 p-4">{children}</div>}
     </div>
   );
 }
@@ -298,10 +331,10 @@ function FreshnessStrip({
   });
 
   return (
-    <div className="card p-4">
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="mono text-xs text-txt-dim uppercase tracking-wider">
-          Veri Tazeliği · son hafta / hafta sayısı / son import
+          son hafta / hafta sayısı / son import
         </div>
         <SegTabs
           tabs={[
@@ -336,77 +369,6 @@ function FreshnessStrip({
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-// İSTEMCİ TARAFI: seçili hafta vs. önceki hafta — görünür perakendecilerin ağ toplamı + delta rozeti.
-function KpiDeltaStrip({
-  delta, visibleCount,
-}: {
-  delta: { cur: { qty: number; val: number; st: number } | null; prev: { qty: number; val: number; st: number } | null; prevWeek: string | null };
-  visibleCount: number;
-}) {
-  const { cur, prev, prevWeek } = delta;
-  if (visibleCount === 0) {
-    return (
-      <div className="card p-4 text-center text-txt-dim mono text-xs">
-        Ağ KPI: perakendeci seçili değil.
-      </div>
-    );
-  }
-  if (!cur) {
-    return (
-      <div className="card p-4 text-center text-txt-dim mono text-xs">
-        Seçili hafta için ağ KPI verisi yok.
-      </div>
-    );
-  }
-  // Yüzde delta (önceki hafta yoksa null → "—"). Puan farkı sell-through için kullanılır.
-  const pct = (c: number, p: number | undefined) => (p != null && p > 0 ? ((c - p) / p) * 100 : null);
-  const items = [
-    { label: "AĞ CİROSU", value: fmtMoney(cur.val), d: pct(cur.val, prev?.val), color: "#d8e8d8" },
-    { label: "AĞ SATIŞ", value: `${fmtInt(cur.qty)} adet`, d: pct(cur.qty, prev?.qty), color: "#1FF80B" },
-    {
-      label: "SELL-THROUGH",
-      value: cur.st.toFixed(1) + "%",
-      d: prev ? cur.st - prev.st : null, // puan farkı (yüzde değil)
-      pts: true,
-      color: "#f8b00b",
-    },
-  ];
-  return (
-    <div className="card p-4">
-      <div className="mono text-[10px] text-txt-dim tracking-wider mb-3 uppercase">
-        Ağ KPI · seçili hafta vs. {prevWeek ? fmtDate(prevWeek) : "önceki hafta yok"} · {visibleCount} perakendeci
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {items.map((it) => {
-          const up = it.d != null && it.d >= 0;
-          const c = it.d == null ? "#7d927d" : up ? "#1FF80B" : "#ff5555";
-          const txt =
-            it.d == null
-              ? "—"
-              : it.pts
-              ? `${up ? "+" : ""}${it.d.toFixed(1)} pt`
-              : fmtPct(it.d);
-          return (
-            <div key={it.label} className="flex items-center justify-between gap-2">
-              <div>
-                <div className="mono text-[10px] text-txt-dim tracking-wider">{it.label}</div>
-                <div className="text-xl font-bold mono mt-0.5" style={{ color: it.color }}>{it.value}</div>
-              </div>
-              <span
-                className="mono text-xs px-2 py-1 rounded shrink-0"
-                style={{ color: c, border: `1px solid ${c}40`, background: c + "14" }}
-                title="Önceki haftaya göre değişim"
-              >
-                {it.d != null && it.d >= 0 ? "▲" : it.d != null ? "▼" : ""} {txt}
-              </span>
-            </div>
-          );
-        })}
       </div>
     </div>
   );

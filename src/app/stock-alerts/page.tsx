@@ -31,13 +31,33 @@ type Item = {
   sku_name: string;
   barkod: string | null;
   avg_sales: number;
+  ewma?: number;                       // üstel ağırlıklı hız (yeni haftalar baskın)
+  trend?: "up" | "down" | "flat";      // EWMA / düz ort. — ivme sinyali
   last_sales: number;
   stock_qty: number;
   sales_value: number;
   cover: number | null;
+  cover_ewma?: number | null;
   weeks_used: number;
   status: Status;
 };
+
+// İvme oku: EWMA düz ortalamanın ±%15 dışındaysa ürün hızlanıyor/yavaşlıyor demektir.
+// Ok, "Haftalık Ort." hücresinde durur — hover başlığı EWMA hızını ve EWMA'ya göre
+// kaç hafta yeteceğini gösterir (ivmelenen üründe düz kapsamdan daha gerçekçi).
+function TrendArrow({ r }: { r: Item }) {
+  if (!r.trend || r.trend === "flat") return null;
+  const up = r.trend === "up";
+  return (
+    <span
+      className={`ml-1 ${up ? "text-neon" : "text-red-400"}`}
+      title={`${up ? "Hızlanıyor" : "Yavaşlıyor"} — EWMA hız ${r.ewma ?? "?"}/hf` +
+        (r.cover_ewma != null ? ` · bu hıza göre stok ${r.cover_ewma} hf yeter` : "")}
+    >
+      {up ? "↗" : "↘"}
+    </span>
+  );
+}
 type Enriched = Item & { brand: string; team: string; type: string };
 
 // Eski toggle ile yeni kolon-sıralaması aynı anda iki ayrı sıralama isteyemez.
@@ -288,6 +308,12 @@ export default function StockPage() {
           soluklaştır ki eski perakendecinin sayıları güncel sanılmasın. */}
       {data && (
         <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-40" : ""}`}>
+          {/* Hız tanımı + ivme oku lejantı — tabloyu okumadan önce tek satırda ne-nedir. */}
+          <div className="col-span-2 md:col-span-4 mono text-[11px] text-txt-dim">
+            Hız = son {data?.weeksUsed ?? 4} haftanın <span className="text-txt">haftalık ortalama</span> satışı ·
+            <span className="text-neon"> ↗</span>/<span className="text-red-400">↘</span> = EWMA ivme
+            (son haftalar baskın; ürün ortalamadan ±%15 hızlı/yavaşsa görünür — oka gel, EWMA hızı ve gerçekçi stok ömrünü gösterir).
+          </div>
           <StatCard label="TÜKENDİ (satıyor, stok 0)" value={fmtInt(liveCounts.tukendi)} color="#fca5a5" />
           <StatCard label="ACİL (< 1 hafta yeter)" value={fmtInt(liveCounts.acil)} color="#fdba74" />
           <StatCard label="İZLE (1–2 hafta)" value={fmtInt(liveCounts.izle)} color="#fde047" />
@@ -339,7 +365,7 @@ export default function StockPage() {
                             {r.team !== "Genel" ? r.team : ""}{r.team !== "Genel" && r.type !== "Diğer" ? " · " : ""}{r.type !== "Diğer" ? r.type : ""}
                           </span>
                         </td>
-                        <td className="mono text-right">{fmtInt(r.avg_sales)}</td>
+                        <td className="mono text-right">{fmtInt(r.avg_sales)}<TrendArrow r={r} /></td>
                         <td className="mono text-right text-txt-dim">{fmtInt(r.last_sales)}</td>
                         <td className="mono text-right">{fmtInt(r.stock_qty)}</td>
                         <td className="mono text-right">{r.cover == null ? "—" : `${r.cover} hf`}</td>

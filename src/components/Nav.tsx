@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Üst menü. Silinen sayfalar (/overview, /coverage, /olu-stok) çıkarıldı;
-// /stok birleşik stok merkezi, Dashboard ise özeti içeriyor.
+// Üst menü. Silinen sayfalar (/overview, /coverage, /olu-stok, /sat-ode) çıkarıldı;
+// /stok birleşik stok merkezi, Dashboard özeti + nakit takvimini içeriyor.
+// (Sat-Öde/fatura mutabakatı bilinçli olarak kapsam dışı: bu sistem satış-stok
+// optimizasyonudur; fatura muhasebesi ayrı bir dünya.)
 const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/insights", label: "Intelligence" },
@@ -16,7 +18,6 @@ const NAV = [
   { href: "/stock-alerts", label: "Sipariş" },
   { href: "/stok", label: "Stok" },
   { href: "/yonlendirme", label: "Yönlendirme" },
-  { href: "/sat-ode", label: "Sat-Öde" },
   { href: "/eslesme", label: "Eşleşme" },
   { href: "/upload", label: "Yükle" },
 ];

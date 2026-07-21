@@ -21,7 +21,10 @@ export function HealthBanner() {
   useEffect(() => {
     fetch("/api/health")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d && !d.error) { setH(d); if ((d.issues ?? []).some((i: Issue) => i.severity === "high")) setOpen(true); } })
+      // Otomatik AÇILMAZ: kronik sorunlar (ör. bilinen fiyatsız kalemler) her gün
+      // sayfanın tepesini kaplıyordu. Özet satırı puan+rozetlerle zaten uyarır;
+      // detay isteyen tıklar.
+      .then((d) => { if (d && !d.error) setH(d); })
       .catch(() => {});
   }, []);
 
