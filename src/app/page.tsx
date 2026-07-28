@@ -40,14 +40,12 @@ export default function DashboardPage() {
         setSummary(sum);
         setFreshness((d?.freshness ?? []) as Freshness[]);
         setInsights(ins?.insights ?? []);
-        // Açılış haftası = son TAM hafta (5 firmanın da veri gönderdiği en yeni
-        // hafta). En güncel hafta çoğu gün kısmidir (2-3 firma) ve dashboard'ı
-        // yanıltıcı toplamlar + anlamsız deltalarla açıyordu. Kısmi haftalar
-        // dropdown'dan hâlâ seçilebilir — o zaman KISMİ rozeti uyarır.
+        // Açılış haftası = EN YENİ hafta. Firmalar farklı haftalarda geldiği için
+        // "son tam-kadro hafta" çoğu zaman haftalarca geride kalıyor (5 firma aynı
+        // haftada nadiren tamamlanır) → dashboard bayat açılıyordu. Artık her zaman
+        // en güncel hafta; kısmiyse KpiHero'daki "KISMİ n/5" rozeti uyarır.
         const weeks = [...new Set(sum.map((s) => s.week_start))].sort();
-        const firmCount = (w: string) => new Set(sum.filter((s) => s.week_start === w).map((s) => s.retailer)).size;
-        const full = [...weeks].reverse().find((w) => firmCount(w) >= RETAILERS.length);
-        if (weeks.length) setWeek((full ?? weeks[weeks.length - 1]) as string);
+        if (weeks.length) setWeek(weeks[weeks.length - 1] as string);
       })
       .catch((e) => {
         // Gerçek arızayı gizleme: hatayı göster, state'leri güvenli boş default'a çek
