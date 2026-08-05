@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,24 @@ function pinMatches(got: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+// Erişim kaydı — access_log tablosuna yazar (kaç kez/ne zaman/nereden + hatalı
+// denemeler). İKİ KURAL: (1) PIN veya başka gizli değer ASLA loglanmaz;
+// (2) log hatası girişi bozmaz — hata yutulur, kullanıcı etkilenmez.
+async function logAccess(
+  req: NextRequest,
+  event: "login_ok" | "login_fail" | "logout"
+): Promise<void> {
+  try {
+    const h = req.headers;
+    const ip = (h.get("x-forwarded-for") ?? h.get("x-real-ip") ?? "")
+      .split(",")[0].trim() || null;
+    const ua = (h.get("user-agent") ?? "").slice(0, 300) || null;
+    await supabaseAdmin().from("access_log").insert({ event, ip, user_agent: ua });
+  } catch (e) {
+    console.error("access_log yazılamadı:", e);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const pin = String(body?.pin ?? "").trim();
@@ -32,11 +51,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (!pinMatches(pin)) {
+    await logAccess(req, "login_fail");
     // Kaba kuvveti yavaşlatmak için küçük gecikme.
     await new Promise((r) => setTimeout(r, 500));
     return NextResponse.json({ ok: false, error: "Hatalı PIN" }, { status: 401 });
   }
 
+  await logAccess(req, "login_ok");
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE, SESSION, {
     httpOnly: true,
@@ -49,7 +70,8 @@ export async function POST(req: NextRequest) {
 }
 
 // Çıkış: çerezi sil.
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  await logAccess(req, "logout");
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
   return res;

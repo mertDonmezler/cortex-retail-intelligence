@@ -11,6 +11,8 @@ import { MultiChips, SegTabs } from "@/components/Controls";
 import { HealthBanner } from "@/components/HealthBanner";
 import { ActionPanel } from "@/components/ActionPanel";
 import { CashCalendar } from "@/components/CashCalendar";
+import { MonthlySummary } from "@/components/MonthlySummary";
+import { AccessLog } from "@/components/AccessLog";
 import { MailButton } from "@/components/MailButton";
 import { fetchJson } from "@/lib/fetchJson";
 
@@ -191,6 +193,10 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Aylık özet — haftalık tablonun üstüne "büyük resim" bağlamı (istemcide
+          türetilir; hafta→ay çoğunluk kuralı, stok ay sonu anlık). */}
+      <MonthlySummary summary={summary} visible={visible} />
+
       <SectionTitle label="KARAR MERKEZİ" />
 
       {topInsights.length > 0 && (
@@ -261,6 +267,11 @@ export default function DashboardPage() {
           özetliyor; buradaki ayrıntı (hafta sayısı/son import) isteyene açılır. */}
       <Collapse title="Veri Tazeliği · firma bazında ayrıntı">
         <FreshnessStrip freshness={freshness} latestWeek={latestWeek} sort={freshSort} onSort={setFreshSort} />
+      </Collapse>
+
+      {/* Erişim kaydı — giriş sayısı/zamanı/IP + hatalı PIN denemeleri (katlı). */}
+      <Collapse title="Erişim Kaydı · giriş sayısı, cihaz, hatalı denemeler">
+        <AccessLog />
       </Collapse>
     </div>
   );
