@@ -17,6 +17,10 @@ const config: Config = {
         mono: ["var(--font-mono)", "monospace"],
         sans: ["var(--font-sans)", "system-ui"],
       },
+      // Bütün hover:transition-* tek ritimde: 120 ms, tek eğri (expo-out).
+      // globals.css'teki --cx-tik / --cx-e ile aynı.
+      transitionDuration: { DEFAULT: "120ms" },
+      transitionTimingFunction: { DEFAULT: "cubic-bezier(.16,1,.3,1)" },
     },
   },
   plugins: [],

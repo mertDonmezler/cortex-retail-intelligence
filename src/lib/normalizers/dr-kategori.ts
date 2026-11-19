@@ -2,7 +2,8 @@
 // Kolonlar: Urun / Urun Id / Barkod / Satis Miktar / Stok Miktar /
 // Web Depo Stok Miktar / Offline Depo Stok Miktar. Asepto DEĞİL: mağaza
 // kırılımı yok, tarih yok (hafta dosya adından ya da yükleme override'ından
-// gelir), fiyat yok (ciro'yu barkod-medyan enrichment doldurur).
+// gelir), fiyat yok (ciroyu enrichment doldurur: önce o haftaya kadar kesilen son
+// fatura — lib/fatura-fiyat.ts —, faturası olmayan barkodda barkod medyanı).
 // Stok = "Stok Miktar" (mağaza rafı); web/offline depo kolonları BİLEREK hariç —
 // bizim stok metriğimiz satılabilir kanal stoğu.
 import type { UnifiedRow } from "./types";
@@ -12,12 +13,27 @@ import { toNum as num } from "./num";
 type Row = Record<string, unknown>;
 
 const TR_FOLD: Record<string, string> = {
-  ı: "i", İ: "i", I: "i", ş: "s", Ş: "s", ğ: "g", Ğ: "g",
-  ü: "u", Ü: "u", ö: "o", Ö: "o", ç: "c", Ç: "c",
+  ı: "i",
+  İ: "i",
+  I: "i",
+  ş: "s",
+  Ş: "s",
+  ğ: "g",
+  Ğ: "g",
+  ü: "u",
+  Ü: "u",
+  ö: "o",
+  Ö: "o",
+  ç: "c",
+  Ç: "c",
 };
 function fold(s: string): string {
-  return s.split("").map((c) => TR_FOLD[c] ?? c).join("")
-    .toLowerCase().replace(/[\s_/\-.]+/g, "");
+  return s
+    .split("")
+    .map((c) => TR_FOLD[c] ?? c)
+    .join("")
+    .toLowerCase()
+    .replace(/[\s_/\-.]+/g, "");
 }
 
 // Format parmak izi: "Urun Id" + "Satis Miktar" + "Stok Miktar" birlikte VE
@@ -28,17 +44,76 @@ function fold(s: string): string {
 export function isDrKategori(cols: string[]): boolean {
   const f = cols.map(fold);
   return (
-    f.includes("urunid") && f.includes("satismiktar") && f.includes("stokmiktar") &&
-    !f.includes("magaza") && !f.includes("satistutar")
+    f.includes("urunid") &&
+    f.includes("satismiktar") &&
+    f.includes("stokmiktar") &&
+    !f.includes("magaza") &&
+    !f.includes("satistutar")
   );
 }
 
-export function normalizeDrKategori(rows: Row[], week: WeekRange, sourceFile: string): UnifiedRow[] {
+// ── D&R DEPO STOĞU (2026-10-29) ──
+// Aynı dosyanın "Offline Depo Stok Miktar" / "Web Depo Stok Miktar" kolonları.
+// fact_weekly'ye GİRMEZ (CORTEX stoğu = mağaza rafı standardı korunur); ayrı
+// kanal_depo tablosuna yazılır (supabase/kanal-depo.sql). Neden lazım: D&R'ın
+// mağaza rafı incelmişken deposunda mal olabilir — o zaman doğru iş "sevk et"
+// değil "D&R deposundan dağıtsın". 22 Ekim'de eski bir depo kopyası güncel
+// sanılınca sipariş kontrolü ters çıkmıştı; bu yüzden depo HAFTASIYLA saklanır
+// ve motor yalnız aynı haftanın deposunu kullanır.
+export type DepoSatiri = {
+  retailer: "DR";
+  week_start: string;
+  sku_name: string;
+  barkod: string | null;
+  offline_depo: number;
+  web_depo: number;
+  source_file: string;
+};
+
+export function drKategoriDepo(
+  rows: Row[],
+  week: WeekRange,
+  sourceFile: string,
+): DepoSatiri[] {
+  if (!rows.length) return [];
+  const cols = Object.keys(rows[0]);
+  const find = (...cands: string[]) =>
+    cols.find((c) => cands.includes(fold(c))) ?? null;
+  const colOff = find("offlinedepostokmiktar", "offlinedepostokmiktari");
+  const colWeb = find("webdepostokmiktar", "webdepostokmiktari");
+  if (!colOff && !colWeb) return []; // depo kolonu taşımayan dosya
+  const colName = find("urun", "urunadi");
+  const colBarkod = find("barkod");
+  if (!colName) return [];
+  const out: DepoSatiri[] = [];
+  for (const r of rows) {
+    const name = String(r[colName] ?? "").trim();
+    if (!name || /genel toplam|^toplam/i.test(name)) continue;
+    const barkod = String(r[colBarkod ?? ""] ?? "").replace(/\D/g, "");
+    out.push({
+      retailer: "DR",
+      week_start: week.start,
+      sku_name: name,
+      barkod: barkod.length >= 6 ? barkod : null,
+      offline_depo: Math.max(0, num(colOff ? r[colOff] : 0)),
+      web_depo: Math.max(0, num(colWeb ? r[colWeb] : 0)),
+      source_file: sourceFile,
+    });
+  }
+  return out;
+}
+
+export function normalizeDrKategori(
+  rows: Row[],
+  week: WeekRange,
+  sourceFile: string,
+): UnifiedRow[] {
   if (rows.length === 0) {
     throw new Error("D&R dosyası boş — yeniden iste.");
   }
   const cols = Object.keys(rows[0]);
-  const find = (...cands: string[]) => cols.find((c) => cands.includes(fold(c))) ?? null;
+  const find = (...cands: string[]) =>
+    cols.find((c) => cands.includes(fold(c))) ?? null;
   const colName = find("urun", "urunadi");
   const colId = find("urunid");
   const colBarkod = find("barkod");
@@ -50,7 +125,9 @@ export function normalizeDrKategori(rows: Row[], week: WeekRange, sourceFile: st
   if (!colSales) missing.push("Satis Miktar");
   if (!colStock) missing.push("Stok Miktar");
   if (missing.length) {
-    throw new Error(`D&R-Kategori eksik kolon: ${missing.join(", ")}. Bulunan: ${cols.join(", ")}`);
+    throw new Error(
+      `D&R-Kategori eksik kolon: ${missing.join(", ")}. Bulunan: ${cols.join(", ")}`,
+    );
   }
 
   const out: UnifiedRow[] = [];

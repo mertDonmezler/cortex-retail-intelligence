@@ -4,9 +4,12 @@
 // hazır metin olarak çeker, modal içinde gösterir; tek tıkla panoya kopyalanır.
 // (Her hafta elle yazılan durum mailinin ürünleşmiş hali.)
 import { useState } from "react";
-import { fetchJson } from "@/lib/fetchJson";
+import { izle } from "@/lib/mesgul";
 
-export function MailButton({ week }: { week: string }) {
+// `ozet`: ana sayfanın zaten yüklediği /api/routing özeti. Uca POST ile taşınır
+// ki mail "BU HAFTA" bölümünü (sevk / çek / raf kapsamı) yazabilsin — motoru
+// ikinci kez çalıştırmadan. Özet yoksa o bölüm düşer, mail yine üretilir.
+export function MailButton({ week, ozet }: { week: string; ozet?: any }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
@@ -19,7 +22,13 @@ export function MailButton({ week }: { week: string }) {
     setCopied(false);
     setOpen(true);
     try {
-      const d = await fetchJson(`/api/weekly-report?week=${encodeURIComponent(week)}`);
+      const r = await izle(fetch(`/api/weekly-report?week=${encodeURIComponent(week)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ozet: ozet ?? null }),
+      }));
+      const d = await r.json();
+      if (!r.ok || d?.error) throw new Error(d?.error ?? `Sunucu hatası (${r.status})`);
       setText(d.text ?? "");
     } catch (e: any) {
       setErr(e?.message ?? "Rapor üretilemedi");
@@ -45,18 +54,18 @@ export function MailButton({ week }: { week: string }) {
         onClick={generate}
         disabled={!week}
         className="mono text-xs px-4 py-2 rounded-lg border border-neon/50 text-neon
-          hover:bg-neon/10 transition-colors disabled:opacity-40"
+          hover:bg-neon/10 hover:transition-colors disabled:opacity-40"
       >
         📋 Haftalık Mail
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 cx-ortu-renk"
           onClick={() => setOpen(false)}
         >
           <div
-            className="card w-full max-w-2xl p-5 space-y-4"
+            className="card card-flat w-full max-w-2xl p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Haftalık mail taslağı"
@@ -68,7 +77,7 @@ export function MailButton({ week }: { week: string }) {
             </div>
 
             {busy ? (
-              <div className="mono text-sm text-txt-dim animate-pulse py-10 text-center">Hazırlanıyor…</div>
+              <div className="mono text-sm text-txt-dim py-10 text-center">Hazırlanıyor…</div>
             ) : err ? (
               <div className="mono text-sm text-red-400 py-6 text-center">{err}</div>
             ) : (
@@ -87,7 +96,7 @@ export function MailButton({ week }: { week: string }) {
                   <button
                     type="button"
                     onClick={copy}
-                    className="mono text-sm px-5 py-2 rounded-lg bg-neon text-ink font-bold hover:bg-neon-dim transition-colors"
+                    className="mono text-sm px-5 py-2 rounded-lg bg-neon text-ink font-bold hover:bg-neon-dim hover:transition-colors"
                   >
                     {copied ? "✓ Kopyalandı" : "⧉ Kopyala"}
                   </button>

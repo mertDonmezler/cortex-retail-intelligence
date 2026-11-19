@@ -7,12 +7,15 @@
 //   3. npx tsx scripts/seed.ts   (veya: npm run seed)
 
 import { createClient } from "@supabase/supabase-js";
-import * as XLSX from "xlsx";
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 import { config } from "dotenv";
-import { normalizeFile } from "../src/lib/normalizers";
-import { fetchAllRows } from "../src/lib/supabase";
+import { normalizeFile, checkRowHealth } from "../src/lib/normalizers";
+// Fiyat enrichment'i panel yüklemesiyle PAYLAŞILAN modülden gelir. Eskiden
+// seed'in kendi kopyası vardı ve tüm geçmişten tek global medyan hesaplıyordu;
+// aynı Excel iki yoldan yüklendiğinde farklı sales_value üretiyordu.
+import { enrichPrices, type PriceSlice } from "../src/lib/prices";
+import { toyzzBarkodHaritasi, toyzzBarkodIsle } from "../src/lib/toyzz-barkod";
 import type { Retailer, UnifiedRow } from "../src/lib/normalizers/types";
 
 config({ path: ".env.local" });
@@ -37,7 +40,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Toyzz Kalem Kodu → barkod eşlemesi, HİÇBİR dilim silinmeden ÖNCE okunur:
+  // seed Toyzz haftalarını DELETE+INSERT ile yeniden yazar; eşleme sonradan
+  // okunsaydı silinen satırların barkodu kaybolurdu (bkz. lib/toyzz-barkod.ts).
+  const toyzzHarita = await toyzzBarkodHaritasi(db);
+  console.log(`Toyzz barkod eşlemesi: ${toyzzHarita.size} kalem`);
+
   let allRows: UnifiedRow[] = [];
+  // (perakendeci|hafta) -> o dilimi yazan ilk dosya adi. TUM KLASORLER icin tek
+  // kume: ayni dilime ikinci dosya gelirse atlanir (gerekcesi asagida).
+  const yazilanDilimler = new Map<string, string>();
   for (const [folder, retailer] of Object.entries(FOLDERS)) {
     const dir = join(seedRoot, folder);
     if (!existsSync(dir)) continue;
@@ -47,6 +59,25 @@ async function main() {
         const buf = readFileSync(join(dir, file));
         const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
         const rows = normalizeFile(ab as ArrayBuffer, retailer, file);
+        if (retailer === "Toyzz") toyzzBarkodIsle(rows, toyzzHarita);
+        // Panel yüklemesiyle AYNI sağlık kontrolü: tümü 0 satış / tümü 0 stok /
+        // ciro üretilemez dosyalar sessizce geçmesin. Bloklamıyor — uyarıyor.
+        for (const w of checkRowHealth(rows).warnings) {
+          console.warn(`[UYARI] ${folder}/${file} — ${w}`);
+        }
+        // AYNI DILIM IKI KEZ YAZILMAZ — /api/upload ile ayni koruma.
+        // Uc, ayni istekte ayni (perakendeci, hafta) dilimine yazan ikinci
+        // dosyayi acikca reddediyor; seed'de bu kontrol yoktu ve iki dosya ayni
+        // haftaya cozulurse (tarihsiz dosyalar weekFromToday yedegine duser)
+        // silme BIR KEZ, yazma IKI KEZ oluyor: o haftanin satisi ve stogu iki
+        // katina cikiyor, konsol [OK] diyor, saglik kontrolu goremiyor.
+        const dilim = `${retailer}|${rows[0]?.week_start ?? ""}`;
+        const onceki = yazilanDilimler.get(dilim);
+        if (onceki) {
+          console.log(`[ATLA] ${folder}/${file} — ${rows[0]?.week_start} haftasi bu kosuda zaten "${onceki}" dosyasindan yazildi; ciftlemeyi onlemek icin atlandi.`);
+          continue;
+        }
+        yazilanDilimler.set(dilim, file);
         allRows = allRows.concat(rows);
         console.log(`[OK]   ${folder}/${file} — ${rows.length} satır (${rows[0]?.week_start})`);
       } catch (e: any) {
@@ -80,14 +111,16 @@ async function main() {
   console.log("\n✓ fact_weekly dolduruldu.");
 
   // Import log — bu dosyalar için eski kayıtları sil, yenilerini yaz
-  const byFile = new Map<string, { retailer: string; week: string; rows: number }>();
+  // ANAHTAR FIRMA + DOSYA ADI. Yalniz source_file kullanilinca iki farkli firma
+  // klasorunde ayni adli dosya (or. "Hafta 1.xlsx") tek satira karisiyordu.
+  const byFile = new Map<string, { retailer: string; week: string; rows: number; filename: string }>();
   for (const r of allRows) {
-    const k = r.source_file;
-    if (!byFile.has(k)) byFile.set(k, { retailer: r.retailer, week: r.week_start, rows: 0 });
+    const k = `${r.retailer}|${r.source_file}`;
+    if (!byFile.has(k)) byFile.set(k, { retailer: r.retailer, week: r.week_start, rows: 0, filename: r.source_file });
     byFile.get(k)!.rows++;
   }
-  const logRows = [...byFile.entries()].map(([filename, v]) => ({
-    retailer: v.retailer, filename, week_start: v.week, rows: v.rows,
+  const logRows = [...byFile.values()].map((v) => ({
+    retailer: v.retailer, filename: v.filename, week_start: v.week, rows: v.rows,
   }));
   for (const lr of logRows) {
     await db.from("import_log").delete().eq("retailer", lr.retailer).eq("filename", lr.filename);
@@ -96,9 +129,17 @@ async function main() {
   if (logErr) console.error("import_log yazılamadı:", logErr.message);
   else console.log(`✓ import_log dolduruldu (${logRows.length} dosya).`);
 
-  // Fiyat enrichment
+  // Fiyat enrichment — panel yüklemesiyle AYNI modül, AYNI semantik.
+  // Fark yalnız parametre: seed burada tüm dilimleri birden verir, panel 1-2 tane.
+  // Sözlük dilim başına kurulduğu için sonuç, aynı haftaları tek tek yüklemekle
+  // aynı çıkar (bkz. src/lib/prices.ts başındaki not).
   console.log("Fiyat enrichment…");
-  await enrich();
+  const priceSlices: PriceSlice[] = slices.map(([retailer, week_start]) => ({ retailer, week_start }));
+  const rep = await enrichPrices(db, priceSlices, { log: (m) => console.log(`  ${m}`) });
+  console.log(
+    `✓ Fiyat enrichment: ${rep.gaps} ciro boşluğu, ${rep.filled} satır dolduruldu, ` +
+    `${rep.unpriced} satır fiyatsız kaldı, ${rep.failed} yazma hatası.`
+  );
 
   // Özet matview'larını yenile (dashboard anlık okusun)
   const { error: rErr } = await db.rpc("refresh_summaries");
@@ -106,55 +147,6 @@ async function main() {
   else console.log("✓ Özet matview'ları yenilendi.");
 
   console.log("✓ Tamamlandı.");
-}
-
-async function enrich() {
-  // Sayfalı tam çekim — 356K satırlık seed'de PostgREST 1000-satır kırpması
-  // yanlış medyan fiyat üretmesin.
-  const priced = await fetchAllRows<{ barkod: string | null; sales_value: number; sales_qty: number }>(
-    (from, to) => db.from("fact_weekly")
-      .select("barkod, sales_value, sales_qty")
-      .not("barkod", "is", null).gt("sales_value", 0).gt("sales_qty", 0)
-      .order("id").range(from, to)
-  );
-  if (!priced.length) return;
-
-  const byBarkod = new Map<string, number[]>();
-  for (const r of priced) {
-    const u = Number(r.sales_value) / Number(r.sales_qty);
-    if (!isFinite(u) || u <= 0) continue;
-    const arr = byBarkod.get(r.barkod as string) ?? [];
-    arr.push(u);
-    byBarkod.set(r.barkod as string, arr);
-  }
-  const median = (a: number[]) => { const s=[...a].sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; };
-  const priceMap = new Map<string, number>();
-  for (const [bk, arr] of byBarkod) priceMap.set(bk, median(arr));
-
-  const priceRows = [...priceMap.entries()].map(([barkod, median_price]) => ({
-    barkod, median_price, samples: byBarkod.get(barkod)!.length,
-  }));
-  for (let i = 0; i < priceRows.length; i += 1000) {
-    const { error } = await db.from("sku_prices").upsert(priceRows.slice(i, i + 1000), { onConflict: "barkod" });
-    if (error) console.error("sku_prices upsert hatası:", error.message);
-  }
-
-  const missing = await fetchAllRows<{ id: number; barkod: string | null; sales_qty: number }>(
-    (from, to) => db.from("fact_weekly")
-      .select("id, barkod, sales_qty").is("sales_value", null).not("barkod", "is", null)
-      .order("id").range(from, to)
-  );
-  const updates = missing
-    .map((r) => ({ id: r.id, p: priceMap.get(r.barkod as string), qty: Number(r.sales_qty) }))
-    .filter((u) => u.p != null);
-  for (let i = 0; i < updates.length; i += 200) {
-    const res = await Promise.all(updates.slice(i, i + 200).map((u) =>
-      db.from("fact_weekly").update({ sales_value: u.p! * u.qty, price: u.p }).eq("id", u.id)
-    ));
-    const errs = res.filter((x: any) => x?.error).length;
-    if (errs) console.error(`  ${errs} fiyat güncelleme hatası (blok ${i}).`);
-  }
-  console.log(`  ${updates.length} satır TL ile dolduruldu.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -3,12 +3,17 @@ import { supabase } from "@/lib/supabase";
 import { execOverview } from "@/lib/compute";
 import { netRows } from "@/lib/margins";
 import { toSummary } from "@/lib/rows";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
+// Vercel varsayılanı 10 sn; tüm weekly_summary + execOverview hesabı matview
+// soğukken bunu zorlayabiliyor. Ağır route'lar 60 kullanıyor, buna 30 yeterli.
+export const maxDuration = 30;
 
 export async function GET(req: NextRequest) {
-  const week = new URL(req.url).searchParams.get("week") || undefined;
+  const week = optionalWeek(new URL(req.url).searchParams.get("week"));
+  if (week === null) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
   try {
     const { data: summary, error } = await supabase
       .from("weekly_summary").select("*").order("week_start", { ascending: true });

@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { RETAILERS, fmtInt, fmtPct, fmtDate, colorOf } from "@/lib/format";
 import { parseProductMeta } from "@/lib/compute";
 import { fetchJson } from "@/lib/fetchJson";
+import { bekleme } from "@/lib/hareket";
 import {
   SortableTh,
   SearchBox,
@@ -223,17 +223,19 @@ export default function ComparePage() {
       ) : (
         <>
           {/* Üst özet — TÜM veri üzerinden adetler (filtreden bağımsız) */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 cx-soluk" {...bekleme(loading)}>
             <StatCard label="ARTAN SKU" value={fmtInt(counts.gainers)} color="#1FF80B" sub={`${fmtDate(weekA)} → ${fmtDate(weekB)}`} />
             <StatCard label="AZALAN SKU" value={fmtInt(counts.losers)} color="#f87171" sub="satış geriledi" />
             <StatCard label="YENİ ÇIKAN" value={fmtInt(counts.newSkus)} color="#0bd1f8" sub="B'de var, A'da yok" />
             <StatCard label="KAYBOLAN" value={fmtInt(counts.lostSkus)} color="#f8b00b" sub="A'da var, B'de yok" />
           </div>
 
-          <SegTabs tabs={views} active={view} onChange={setView} />
+          <div className="cx-soluk" {...bekleme(loading)}>
+            <SegTabs tabs={views} active={view} onChange={setView} />
+          </div>
 
           {loading ? (
-            <div className="card p-10 text-center mono text-txt-dim animate-pulse">Yükleniyor…</div>
+            <div className="card card-flat p-10 text-center mono text-txt-dim">Yükleniyor…</div>
           ) : (
             <>
               {/* İstemci-tarafı analiz kontrolleri */}
@@ -247,7 +249,7 @@ export default function ComparePage() {
                     <button
                       type="button"
                       onClick={clearFilters}
-                      className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+                      className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors"
                     >
                       ✕ filtreleri temizle ({activeFilters})
                     </button>
@@ -321,14 +323,14 @@ export default function ComparePage() {
                   </thead>
                   <tbody>
                     {sorted.map((r, i) => (
-                      <motion.tr key={`${r.retailer}|${r.sku_name}|${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i, 20) * 0.02 }}>
+                      <tr key={`${r.retailer}|${r.sku_name}|${i}`}>
                         <td className="max-w-xs truncate" title={r?.sku_name}>{r?.sku_name ?? "—"}</td>
                         <td className="mono text-xs" style={{ color: colorOf(r?.retailer ?? "") }}>{r?.retailer ?? "—"}</td>
                         <td className="mono text-right">{fmtInt(r?.a_qty ?? 0)}</td>
                         <td className="mono text-right">{fmtInt(r?.b_qty ?? 0)}</td>
                         <td className={`mono text-right ${(r?.delta ?? 0) >= 0 ? "text-neon" : "text-red-400"}`}>{(r?.delta ?? 0) >= 0 ? "+" : ""}{fmtInt(r?.delta ?? 0)}</td>
                         <td className={`mono text-right ${(r?.delta_pct ?? 0) >= 0 ? "text-neon" : "text-red-400"}`}>{r?.delta_pct != null ? fmtPct(r.delta_pct) : "yeni"}</td>
-                      </motion.tr>
+                      </tr>
                     ))}
                   </tbody>
                 </table>
@@ -357,7 +359,7 @@ function CompareBars({ items }: { items: { key: string; a: number; b: number; ne
       {items.map((it, i) => {
         const up = it.net >= 0;
         return (
-          <motion.div key={it.key} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(i * 0.03, 0.4) }}>
+          <div key={it.key}>
             <div className="flex justify-between text-sm mb-1">
               <span className="font-medium">{it.key}</span>
               <span className="mono text-txt-dim">
@@ -366,14 +368,12 @@ function CompareBars({ items }: { items: { key: string; a: number; b: number; ne
               </span>
             </div>
             <div className="h-2.5 rounded-full bg-ink-3 overflow-hidden">
-              <motion.div
+              <div
                 className={`h-full rounded-full ${up ? "bg-neon" : "bg-red-400"}`}
-                initial={{ width: 0 }}
-                animate={{ width: `${(Math.abs(it.net) / max) * 100}%` }}
-                transition={{ delay: Math.min(i * 0.03, 0.4) + 0.1, duration: 0.5 }}
+                style={{ width: `${(Math.abs(it.net) / max) * 100}%` }}
               />
             </div>
-          </motion.div>
+          </div>
         );
       })}
     </div>

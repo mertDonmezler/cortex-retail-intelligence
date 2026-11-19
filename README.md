@@ -11,7 +11,7 @@
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres-3ECF8E?logo=supabase&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3-38BDF8?logo=tailwindcss&logoColor=white)
 ![Vercel](https://img.shields.io/badge/Vercel-deployed-000000?logo=vercel&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-112%20passing-1FF80B)
+![Tests](https://img.shields.io/badge/tests-passing-1FF80B)
 
 </div>
 
@@ -45,6 +45,9 @@ CORTEX üç katmanlı okunur: **DURUM** (ne oldu) → **KARAR** (ne yapmalı) �
 | 📈 **Trend & Isı Haritası** | Haftalık seyir (TL varsayılan) ve kanal × hafta yoğunluk görünümü. |
 | 📥 **Self-servis Yükleme** | `/upload`'a Excel sürükle → format **otomatik tanınır**, hafta seçilir, **mutabakat** (önceki haftaya göre sapma) anında gösterilir. |
 | 📋 **Haftalık Mail** | Seçili haftanın durum mailini (net tablo + kohort WoW + eksik firma notu) tek tıkla üretir. |
+| 🗓 **Aylık Özet** | `MonthlySummary` — haftalık veriyi takvim ayına toplar (hafta, günlerinin çoğunun düştüğü aya yazılır → haftalıkla birebir mutabık). Stok toplanmaz, ay sonu anlık değeri alınır; beklenen firma-hafta eksikse ay **"kısmi"** işaretlenir ki eksik veri düşüş sanılmasın. Ek fetch yok, dashboard'ın verisinden türetilir. |
+| 🔑 **Erişim Kaydı** | `AccessLog` + `/api/access-log` — son 30 günün girişleri, başarısız PIN denemeleri, IP/cihaz. `access_log` tablosu anon anahtarla **okunamaz** (RLS + revoke); yalnız sunucudaki service-role okur. Aynı tablo `/api/auth`'un kalıcı kaba-kuvvet sayacını da besler. |
+| 🎭 **Sunum modu** | URL'ye `?demo` (veya `?sunum`) → `DemoMask` para/hacim rakamlarını **CSS ile blur'lar**; ekran paylaşımı ve ekran görüntüsü için perde. Firma adları maskelenmez ve bu bir veri gizleme değildir — değerler DOM'da ve ağ yanıtlarında açıktır. Rozet yalnız maskeleme gerçekten çalışırken görünür. |
 
 **Tasarım ilkesi:** Tüm para yüzeyleri **net kazanç** gösterir (raf fiyatı değil), tüm büyüme göstergeleri **varsayılan ciro (TL) bazlıdır** — "adet arttı ama ciro düştü" yanılgısını engeller.
 
@@ -76,7 +79,9 @@ Her kanalın formatı farklı; hepsi ortak bir `UnifiedRow` şemasına indirgeni
 - **D&R (yeni)** — "Satın Alma - Kategori" formatı (`dr-kategori.ts`); kolon parmak iziyle **otomatik tanınır** (eski mağaza-bazlı D&R formatını yanlışlıkla ele geçirmez). Fiyatsız → medyan PSF ile ciro tamamlanır.
 - **Nezih** — barkod formatı (`nezih.ts`); kendi TL'si yok → barkod bazında diğer kanalların fiyatından **medyan birim fiyat** türetilerek ciro tamamlanır.
 - **Armağan** — mağaza-bazlı (`armagan.ts`); Lokasyon/Barkod/Satış Fiyatı/Geçmiş Stok. Şehir önekli şube adları store analizine döner.
-- **Huppaluppo** — "Stok Raporu" (`huppaluppo.ts`); başlık offsetli, hafta dosyanın içindeki tarih aralığından okunur, TL hazır gelir.
+- **Huppaluppo** — "Stok Raporu" (`huppaluppo.ts`); başlık offsetli, hafta dosyanın içindeki tarih aralığından okunur, TL hazır gelir. Satıcının iç kodu (`Stokkod`) `sku_id`'ye yazılır.
+
+**Barkod ↔ ürün adı 1:1 bekçisi (Huppaluppo):** Kaynak dosyada bazı kalemlerin "Ürün Adı" hücresi ürün adı değil ortak bir **pazarlama cümlesi** olabiliyor (ölçüldü: 4 ayrı barkod aynı cümleyi taşıyor). `sku_weekly` / `sku_coverage` görünümleri `sku_name` ile grupladığı için bu, farklı ürünleri **tek satıra çökertir** ve satış/stok var olmayan tek bir ürüne yazılır (barkod anahtarlı `product_coverage` doğru kalır — hata bu yüzden kolay görünmez). Normalizer artık aynı adın birden fazla barkoda düştüğünü **saptayıp uyarı loglar** ve adın sonuna barkodu ekleyerek teklileştirir. Ad **uydurulmaz**; kalıcı çözüm barkod → kanonik ad eşlemesidir (`product_alias`).
 
 **Kanonik hafta:** Kanallar aynı haftayı farklı gün/etiketle gönderir → tüm `week_start` ISO Pazartesi'sine hizalanır. Tarihsiz/geç gelen dosyalarda hafta yükleme sırasında seçilebilir; Türkçe "HAZİRAN" gibi büyük-İ'li dosya adları özel fold ile doğru çözülür.
 
@@ -100,9 +105,11 @@ Yaklaşım MEIO, ABC-XYZ, newsvendor, Bain 3-kova ve McKinsey/HBS markdown çer�
 
 ## 🔐 Güvenlik
 
-- **PIN kapısı:** `middleware.ts` tüm rotaları korur; 6 haneli PIN **sunucuda** (`/api/auth`) `timingSafeEqual` ile doğrulanır, tarayıcıya inmez. Başarılı girişte `httpOnly` oturum çerezi (30 gün); yanlış denemede gecikme.
+- **PIN kapısı:** `middleware.ts` tüm rotaları korur; 6 haneli PIN **sunucuda** (`/api/auth`) `timingSafeEqual` ile doğrulanır, tarayıcıya inmez. Başarılı girişte `httpOnly` oturum çerezi (7 gün, HMAC imzalı); yanlış denemede gecikme.
 - **Yazma yolu:** Yükleme yalnız sunucu-tarafı service-role ile yazar ve aynı PIN çereziyle korunur (ayrı token katmanı yok).
-- **Sır yönetimi:** Hiçbir anahtar/PIN repoda tutulmaz — hepsi ortam değişkeninden. Env yoksa giriş **kapalı** (fail-closed). İstemciye yalnız anon anahtar + RLS.
+- **Sır yönetimi:** Hiçbir anahtar/PIN repoda tutulmaz — hepsi ortam değişkeninden. Env yoksa giriş **kapalı** (fail-closed).
+- **Veri erişimi — tarayıcıya hiçbir Supabase anahtarı inmez:** `lib/supabase`'i **yalnız sunucu tarafı** (API route'ları, middleware) import eder; hiçbir `"use client"` bileşeni etmez. Bu yüzden `NEXT_PUBLIC_*` anahtarlar istemci paketine dahil edilmez ve tüm veri okuması API route'larından geçer. **Bunu "eksik" sanıp anon anahtarı istemciye indirmeyin:** tablolardaki RLS politikaları `using (true)` (bkz. `schema.sql`, `product-alias.sql`), yani anon anahtar bir kez sızarsa `fact_weekly` dahil tüm satış verisi herkese okunur olur. RLS burada yetkilendirme değil, yalnızca "yazma kapalı" görevi görüyor; gerçek kapı PIN + sunucu-tarafı erişimdir.
+- **Denetim tablosu istisnası:** `access_log` bu modelin dışındadır — anon/authenticated için `revoke all` uygulanır, yalnız service-role okur/yazar.
 - **Şirket verisi:** Gerçek satış Excel'leri (`seed/`) `.gitignore` ile dışarıda; repoda yalnız kod bulunur.
 
 ---
@@ -133,12 +140,29 @@ node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
 
 # 3) Veritabanı şeması (Supabase SQL editöründe bağımlılık sırasıyla)
 #   supabase/schema.sql            # fact_weekly + import_log + sku_prices + temel matview'lar
+#   supabase/access-log.sql        # access_log (giriş kaydı + kaba-kuvvet sayacı) — ATLAMA
 #   supabase/product-alias.sql     # product_alias (barkod eşleme)
 #   supabase/coverage.sql          # sku_coverage matview
 #   supabase/sku-weekly.sql        # sku_weekly + store_weekly (perf matview'ları)
 #   supabase/perf-matviews.sql     # weekly_summary/data_freshness matview'ları
 #   supabase/product-coverage.sql  # product_coverage (product_alias'a bağımlı)
-#   supabase/refresh-fix.sql       # refresh_summaries() + refresh_product_coverage() (en son)
+#   supabase/refresh-fix.sql       # refresh_summaries() + refresh_product_coverage()
+#   supabase/security-hardening.sql # anon erişimini kapatır (EN SON çalıştır)
+#
+#   ⚠ security-hardening.sql'i ÖNCE uygulamayı deploy ettikten sonra çalıştır.
+#     Okuma yolu (src/lib/supabase.ts) service-role anahtarına geçmiş olmalı;
+#     eski sürüm anon anahtarla okuduğu için sertleştirme sonrası ekranlar boş
+#     kalır. Betiğin içinde doğrulama ve geri alma cümleleri var.
+#
+#   ⚠ access-log.sql atlanırsa: /api/auth log yazma hatasını bilinçli yutar
+#     (giriş bozulmasın diye) → giriş kaydı SESSİZCE tutulmaz VE aynı tablodan
+#     beslenen kalıcı hatalı-PIN sayacı çalışmaz (kaba kuvvet freni yalnız
+#     süreç-içi bellekte kalır; serverless'ta örnekler bellek paylaşmaz).
+#     Bağımlılığı yok, schema.sql'den hemen sonra çalıştırılabilir.
+#
+#   Not: supabase/consignment.sql KURULUM DIŞI — Sat-Öde/fatura katmanı
+#   kaldırıldı, hiçbir kod consignment_lines tablosunu sorgulamıyor. Dosya
+#   yalnız geçmiş referans olarak duruyor; yeni kurulumda çalıştırmaya gerek yok.
 
 # 4) Geliştirme sunucusu
 npm run dev    # http://localhost:3000  (önce /giris ekranı gelir)
@@ -152,8 +176,14 @@ npm run dev    # http://localhost:3000  (önce /giris ekranı gelir)
 ### Test
 
 ```bash
-npm test     # 112 test — normalizer'lar (gerçek dosyalar), compute katmanı, edge case'ler
+npm test        # normalizer'lar (gerçek Excel'ler), compute katmanı, edge case'ler
+npx tsc --noEmit  # tip denetimi
 ```
+
+Testler Supabase'e bağlanmaz: `seed/` altındaki gerçek dosyaları parse edip bellekte
+doğrular (dosya sayısı, satır sayısı, bilinen hafta toplamları). `seed/` yoksa
+normalizer bölümü atlanır. Çıktının son satırı kaç testin geçtiğini yazar; sayı
+yeni test eklendikçe artar, hedef **0 başarısız**.
 
 ---
 
@@ -193,6 +223,6 @@ supabase/               # şema + materialized view migration'ları
 
 <div align="center">
 
-**© Unholy Labs / Mert Dönmezler**
+**© Mert Dönmezler**
 
 </div>

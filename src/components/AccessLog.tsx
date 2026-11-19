@@ -46,7 +46,7 @@ export function AccessLog() {
   }, []);
 
   if (failed) return <div className="mono text-xs text-txt-dim">Erişim kaydı okunamadı.</div>;
-  if (!d) return <div className="mono text-xs text-txt-dim animate-pulse">Yükleniyor…</div>;
+  if (!d) return <div className="mono text-xs text-txt-dim">Yükleniyor…</div>;
 
   const max = Math.max(...d.perDay.map((p) => p.count), 1);
 
@@ -76,7 +76,7 @@ export function AccessLog() {
           <div className="mono text-[10px] text-txt-dim tracking-wider mb-2">GÜNLÜK GİRİŞ</div>
           <div className="flex items-end gap-[3px] h-14">
             {d.perDay.map((p) => (
-              <div key={p.day} className="flex-1 min-w-[3px] rounded-t bg-neon/70 hover:bg-neon transition-colors"
+              <div key={p.day} className="flex-1 min-w-[3px] rounded-t bg-neon/70 hover:bg-neon hover:transition-colors"
                 style={{ height: `${(p.count / max) * 100}%` }}
                 title={`${p.day}: ${p.count} giriş`} />
             ))}

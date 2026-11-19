@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState, type ReactNode } from "react";
 import { RETAILERS, fmtInt } from "@/lib/format";
 import { SegTabs, CsvBtn, StatCard } from "@/components/Controls";
+import { AccessLog } from "@/components/AccessLog";
+import { izle } from "@/lib/mesgul";
 
 interface UploadResult {
   filename: string;
@@ -15,6 +16,9 @@ interface UploadResult {
   prev_sales?: number | null;
   prev_stock?: number | null;
   warn?: string;
+  // Dosya başına TÜM uyarılar (sağlık kontrolleri + enrichment/matview sorunları).
+  // `warn` bunların " · " ile birleşmiş hâli; satır satır göstermek daha okunur.
+  warnings?: string[];
 }
 
 // "593 (−15%)" — yüklenen toplam + önceki haftaya göre değişim (mutabakat hücresi).
@@ -36,7 +40,8 @@ const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // Vercel serverless gövde limiti ~4.5
 type StatusKind = "ok" | "fail";
 
 function kindOf(status: string): StatusKind {
-  return status.trim() === "Yüklendi" ? "ok" : "fail";
+  const s = status.trim();
+  return s === "Yüklendi" || s === "Arşive yüklendi" ? "ok" : "fail";
 }
 
 // Boyutu insan-okur biçimde (KB/MB) — seçili dosya listesi ve toplam göstergesi için.
@@ -74,8 +79,17 @@ function completedWeeks(count = 8): { value: string; label: string }[] {
 export default function UploadPage() {
   const [retailer, setRetailer] = useState(RETAILERS[0]);
   const [week, setWeek] = useState(""); // "" = dosya adından otomatik
+  // GEÇEN YIL ARŞİVİ: ayrı tabloya (fact_weekly_arsiv) yazar, canlı paneli
+  // etkilemez; yalnız "geçen yıl bu hafta" kıyası okur. Dosya adları yılı
+  // taşımadığı için hafta (tarih) ZORUNLU, her istekte tek dosya.
+  const [arsiv, setArsiv] = useState(false);
+  const [arsivHafta, setArsivHafta] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  // Özet yenileme AYRI bir istek (bkz. /api/refresh): yazma bitti, panel
+  // güncelleniyor. Başarısız olursa veri kaybı yok, yalnız gecikme var.
+  const [yenileniyor, setYenileniyor] = useState(false);
+  const [yenilemeUyari, setYenilemeUyari] = useState<string | null>(null);
   const [results, setResults] = useState<UploadResult[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
@@ -84,6 +98,10 @@ export default function UploadPage() {
   // Seçili dosyaların toplam boyutu — limit uyarısını önceden göstermek için.
   const totalBytes = useMemo(() => files.reduce((s, f) => s + f.size, 0), [files]);
   const overLimit = totalBytes > MAX_TOTAL_BYTES;
+  // Hafta elle seçiliyken birden çok dosya = hepsi AYNI haftaya yazılır ve
+  // birbirini siler (sunucu ikinciden itibaren reddediyor). Kullanıcıyı
+  // göndermeden önce durdur.
+  const overrideMulti = !!week && files.length > 1;
 
   // ── Son yükleme özeti (sayfanın zaten elinde olan results üzerinden) ──────────
   const summary = useMemo(() => {
@@ -133,18 +151,30 @@ export default function UploadPage() {
       );
       return;
     }
+    if (arsiv && (!arsivHafta || files.length !== 1)) {
+      setErr(!arsivHafta
+        ? "Geçen yıl arşivi için haftayı (tarih) seç — dosya adı yılı taşımıyor."
+        : "Arşive her seferinde tek dosya yüklenir; her dosyanın haftası ayrı seçilir.");
+      return;
+    }
+    if (!arsiv && overrideMulti) {
+      setErr("Hafta elle seçiliyken tek dosya yüklenebilir — birden çok dosya aynı haftaya yazılır ve birbirini siler. Ya haftayı 'Otomatik' yap ya da dosyaları tek tek yükle.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     setResults(null);
+    setYenilemeUyari(null);
     const fd = new FormData();
     fd.append("retailer", retailer);
-    if (week) fd.append("week", week);
+    if (arsiv) { fd.append("hedef", "arsiv"); fd.append("week", arsivHafta); }
+    else if (week) fd.append("week", week);
     files.forEach((f) => fd.append("files", f));
     try {
-      const r = await fetch("/api/upload", {
+      const r = await izle(fetch("/api/upload", {
         method: "POST",
         body: fd,
-      });
+      }));
       if (!r.ok) {
         let msg = `Sunucu hatası (${r.status})`;
         if (r.status === 413) msg = "Dosya(lar) çok büyük — daha küçük partiler halinde dene.";
@@ -158,6 +188,21 @@ export default function UploadPage() {
       setResults(d.results);
       setStatusFilter("all");
       setFiles([]);
+      // ÖZET YENİLEME AYRI İSTEK. Yükleme ucunun bütçesi 60 sn ve matview
+      // yenilemesi tek başına dakikalara çıkabiliyor; ikisi aynı istekte olunca
+      // zaman aşımı yazmayı yarıda bırakabiliyordu. Veri artık yazılmış durumda,
+      // bu adım başarısız olursa yalnız panel bir süre eski görünür.
+      if (d.refreshGerekli) {
+        setYenileniyor(true);
+        try {
+          const rr = await izle(fetch("/api/refresh", { method: "POST" }));
+          if (!rr.ok) setYenilemeUyari("Veri yüklendi ama özet görünümleri yenilenemedi — panel bu haftayı gecikmeli gösterebilir.");
+        } catch {
+          setYenilemeUyari("Veri yüklendi ama özet görünümleri yenilenemedi — panel bu haftayı gecikmeli gösterebilir.");
+        } finally {
+          setYenileniyor(false);
+        }
+      }
     } catch (e: any) {
       setErr(e.message ?? "Bilinmeyen hata");
     } finally {
@@ -196,7 +241,7 @@ export default function UploadPage() {
                 type="button"
                 onClick={() => setRetailer(r)}
                 aria-pressed={retailer === r}
-                className={`mono text-sm px-4 py-2 rounded-lg border transition-colors ${
+                className={`mono text-sm px-4 py-2 rounded-lg border hover:transition-colors ${
                   retailer === r
                     ? "border-neon text-neon bg-neon/10"
                     : "border-line text-txt-dim hover:border-neon/40"
@@ -210,6 +255,21 @@ export default function UploadPage() {
 
         <div>
           <label className="mono text-xs text-txt-dim uppercase tracking-wider">Hafta</label>
+          <label className="mt-2 flex items-center gap-2 mono text-xs text-txt-dim cursor-pointer w-fit">
+            <input type="checkbox" checked={arsiv} onChange={(e) => setArsiv(e.target.checked)} />
+            Geçen yıl arşivi
+            <span className="text-[11px] opacity-70">— yalnız &quot;geçen yıl bu hafta&quot; kıyası okur, canlı panel değişmez</span>
+          </label>
+          {arsiv ? (
+            <div className="mt-2 flex items-center gap-3 flex-wrap">
+              <input type="date" value={arsivHafta} onChange={(e) => setArsivHafta(e.target.value)}
+                className="card mono text-sm px-3 py-2 bg-ink-2 outline-none focus:border-neon" />
+              <span className="mono text-[11px] text-txt-dim max-w-sm">
+                Haftanın herhangi bir günü — Pazartesi&apos;ye hizalanır. Tek dosya; en az 26 hafta önceki
+                ve canlı veride OLMAYAN haftalar yazılır.
+              </span>
+            </div>
+          ) : (
           <div className="mt-2 flex items-center gap-3 flex-wrap">
             <select
               value={week}
@@ -222,11 +282,13 @@ export default function UploadPage() {
               ))}
             </select>
             <span className="mono text-[11px] text-txt-dim max-w-sm">
-              Nezih ve D&R dosyaları tarihsiz gelir — haftayı elle seç.
+              Nezih ve D&R dosyaları tarihsiz gelir — haftayı elle seç. Seçim HER firmada
+              dosya adını/içeriğini ezer (Huppaluppo dahil) ve yalnız TEK dosyayla kullanılır.
               Sonuçtaki "Hafta" kolonunu her zaman kontrol et; yanlışsa doğru haftayı
               seçip yeniden yükle (aynı hafta üzerine yazılır).
             </span>
           </div>
+          )}
         </div>
 
         <div>
@@ -244,7 +306,7 @@ export default function UploadPage() {
               setDrag(false);
               addFiles(Array.from(e.dataTransfer.files ?? []));
             }}
-            className={`mt-2 flex flex-col items-center justify-center gap-1 cursor-pointer rounded-lg border border-dashed px-4 py-7 text-center transition-colors ${
+            className={`mt-2 flex flex-col items-center justify-center gap-1 cursor-pointer rounded-lg border border-dashed px-4 py-7 text-center hover:transition-colors ${
               drag ? "border-neon bg-neon/10" : "border-line hover:border-neon/40"
             }`}
           >
@@ -272,7 +334,7 @@ export default function UploadPage() {
                 <button
                   type="button"
                   onClick={() => setFiles([])}
-                  className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+                  className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors"
                 >
                   temizle
                 </button>
@@ -290,7 +352,7 @@ export default function UploadPage() {
                         type="button"
                         onClick={() => removeFile(i)}
                         aria-label={`${f.name} dosyasını kaldır`}
-                        className="mono text-xs px-1.5 -mr-1 py-1 text-txt-dim hover:text-red-400 transition-colors"
+                        className="mono text-xs px-1.5 -mr-1 py-1 text-txt-dim hover:text-red-400 hover:transition-colors"
                       >
                         ✕
                       </button>
@@ -303,15 +365,21 @@ export default function UploadPage() {
                   Toplam boyut 4MB sınırını aşıyor — bazı dosyaları çıkar ya da 'npm run seed' kullan.
                 </div>
               )}
+              {overrideMulti && (
+                <div className="mono text-[11px] text-red-400">
+                  Hafta elle seçili ve {files.length} dosya var: hepsi aynı haftaya yazılır, birbirini siler.
+                  Haftayı &quot;Otomatik&quot; yap ya da dosyaları tek tek yükle.
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <button
           onClick={submit}
-          disabled={busy || !files.length || overLimit}
+          disabled={busy || !files.length || overLimit || overrideMulti}
           className="mono text-sm px-6 py-3 rounded-lg bg-neon text-ink font-bold
-            disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neon-dim transition-colors"
+            disabled:opacity-40 disabled:cursor-not-allowed hover:bg-neon-dim hover:transition-colors"
         >
           {busy ? "İçe aktarılıyor…" : "⬆ İçe Aktar"}
         </button>
@@ -320,6 +388,25 @@ export default function UploadPage() {
       {err && (
         <div role="alert" className="card p-4 border-red-500/40 text-red-400 mono text-sm">
           Hata: {err}
+        </div>
+      )}
+
+      {yenileniyor && (
+        <div role="status" aria-live="polite" className="card p-3 mono text-sm text-txt-dim">
+          Veri yazıldı · özet görünümleri yenileniyor…
+        </div>
+      )}
+      {yenilemeUyari && (
+        <div role="alert" className="card p-3 mono text-sm" style={{ color: "#f8b00b", borderColor: "#f8b00b40" }}>
+          {yenilemeUyari}{" "}
+          <button type="button" onClick={() => { setYenilemeUyari(null); setYenileniyor(true);
+            izle(fetch("/api/refresh", { method: "POST" }))
+              .then((r) => { if (!r.ok) setYenilemeUyari("Yenileme yine başarısız oldu."); })
+              .catch(() => setYenilemeUyari("Yenileme yine başarısız oldu."))
+              .finally(() => setYenileniyor(false)); }}
+            className="neon-text underline rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-neon">
+            tekrar dene
+          </button>
         </div>
       )}
 
@@ -378,7 +465,7 @@ export default function UploadPage() {
               </thead>
               <tbody>
                 {shownResults.map((r, i) => (
-                  <motion.tr key={r.filename + ":" + i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.02 }}>
+                  <tr key={r.filename + ":" + i}>
                     <td className="mono">{r.filename}</td>
                     <td className="mono">{r.week ? new Date(r.week).toLocaleDateString("tr-TR") : "—"}</td>
                     <td className="mono">{r.rows.toLocaleString("tr-TR")}</td>
@@ -386,14 +473,21 @@ export default function UploadPage() {
                       {r.sales_qty == null ? "—" : (
                         <>
                           <div>satış {withDelta(r.sales_qty, r.prev_sales)} · stok {withDelta(r.stock_qty, r.prev_stock)}</div>
-                          {r.warn && <div className="text-amber-400 text-[11px] mt-0.5">⚠ {r.warn}</div>}
+                          {/* Uyarılar satır satır: "tüm satışlar 0", "beklenen kolon
+                              bulunamadı", "fiyatsız satır kaldı" gibi kontroller yükleme
+                              BLOKLAMAZ ama sessiz de geçmemeli — iki kez gerçekten
+                              yaşandı (boş satış kolonlu Huppaluppo dosyası, Toyzz'un
+                              kolon düzeni değişimi). warnings yoksa eski `warn` alanına düşer. */}
+                          {(r.warnings?.length ? r.warnings : r.warn ? [r.warn] : []).map((w, i) => (
+                            <div key={i} className="text-amber-400 text-[11px] mt-0.5">⚠ {w}</div>
+                          ))}
                         </>
                       )}
                     </td>
                     <td className={`mono ${kindOf(r.status) === "ok" ? "text-neon" : "text-red-400"}`}>
                       {r.status}
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -407,6 +501,41 @@ export default function UploadPage() {
           )}
         </div>
       )}
+
+      {/* ── Erişim kaydı (katlı, varsayılan KAPALI) ───────────────────────────
+          NEDEN BURADA: ana sayfadan alındı. Orada 44 px yer kaplıyor ve hiçbir
+          perakende kararını desteklemiyordu — kimin panele girdiği bir satış/stok
+          kararı değil, panel güvenliği. Yükleme sayfası zaten sistemin bakım
+          yüzeyi: "veriyi kim besliyor" ile "panele kim girdi" aynı yere ait.
+          KAPALIYKEN İSTEK ATMAZ: AccessLog kendi /api/access-log fetch'ini
+          useEffect içinde yapıyor; Collapse çocuğunu yalnız açıldığında mount
+          ettiği için kapalı durumda o effect hiç çalışmıyor. */}
+      <Collapse title="Erişim Kaydı · giriş sayısı, cihaz, hatalı denemeler">
+        <AccessLog />
+      </Collapse>
+    </div>
+  );
+}
+
+// Katlanabilir bölüm — ikincil bloğu varsayılan kapalı tutar ve çocuğunu YALNIZ
+// açıldığında mount eder (kapalıyken çocuğun ağ isteği hiç kurulmaz).
+// Klavye: gerçek bir <button> olduğu için Tab + Enter/Space doğal çalışıyor;
+// odak halkası burada açıkça yazıldı, paylaşılan bir sınıfa güvenilmiyor.
+function Collapse({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left
+          hover:bg-neon/5 hover:transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-neon"
+      >
+        <span className="mono text-xs tracking-wider text-txt-dim">{title}</span>
+        <span className="mono text-xs text-txt-dim shrink-0">{open ? "▾ gizle" : "▸ aç"}</span>
+      </button>
+      {open && <div className="border-t border-line/60 p-4">{children}</div>}
     </div>
   );
 }

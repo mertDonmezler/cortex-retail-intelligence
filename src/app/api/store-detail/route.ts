@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { netFactor } from "@/lib/margins";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
   if (!retailer || !week || !store) {
     return NextResponse.json({ error: "retailer, week, store gerekli" }, { status: 400 });
   }
+  if (!isRetailer(retailer)) return badRequest("Bilinmeyen perakendeci");
+  if (!isWeek(week)) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
   try {
     const rows = await fetchAllRows((from, to) =>
       supabase.from("fact_weekly")

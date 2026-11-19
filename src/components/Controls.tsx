@@ -21,6 +21,21 @@ type Align = "left" | "right" | "center";
 
 const alignClass = (a?: Align): string =>
   a === "right" ? "text-right" : a === "center" ? "text-center" : "text-left";
+// Başlık içindeki buton, hücrenin hizasını flex ile taklit eder (metin hizası
+// buton üzerinde tek başına yetmez, buton blok genişliğinde olduğu için).
+const justifyClass = (a?: Align): string =>
+  a === "right" ? "justify-end" : a === "center" ? "justify-center" : "justify-start";
+
+// KLAVYE ODAK HALKASI — tek kalıp, tüm interaktif primitiflerde aynı.
+// Kalıp `SortableTh`ten kopyalandı (aşağıda satır içinde duruyor, orada
+// bilinçli olarak elle yazılı bırakıldı ki o başlığın uzun sınıf dizgesi
+// değişmesin). Neden yayıldı: `outline-none` tek başına bırakılan bir öge
+// klavyeyle gezildiğinde HİÇ işaret vermiyor — ölçüldü, bu dosyadaki 8
+// interaktif ögeden yalnız 1'i (SortableTh) odak halkası basıyordu, kalan 7'si
+// (SearchBox, MultiChips'in 4 butonu, SegTabs, RangeMin, CsvBtn) sessizdi.
+// `focus-visible` seçildi: fareyle tıklamada halka çıkmaz, yalnız klavye/AT
+// gezintisinde çıkar, yani mevcut fare görünümü hiç değişmez.
+const FOCUS_RING = "focus:outline-none focus-visible:ring-1 focus-visible:ring-neon";
 
 // ════════════════════════════════════════════════════════════════════════════
 // SortableTh — tıklanınca sıralayan tablo başlığı.
@@ -46,18 +61,40 @@ export function SortableTh({
   onClick: (key: string) => void;
   align?: Align;
 }) {
+  const arrow = active ? (dir === "asc" ? "▲" : "▼") : "↕";
   return (
     <th
-      onClick={() => onClick(sortKey)}
-      className={`cursor-pointer select-none whitespace-nowrap transition-colors hover:text-neon ${alignClass(
-        align
-      )} ${active ? "text-neon" : ""}`}
+      className={`select-none whitespace-nowrap ${alignClass(align)} ${active ? "text-neon" : ""}`}
       aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
     >
-      {label}
-      <span className={`ml-1 ${active ? "text-neon" : "opacity-30"}`}>
-        {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-      </span>
+      {/* KLAVYE ERİŞİMİ. Eskiden sıralama `<th onClick>` ile kuruluydu: hücre
+          odaklanamıyor, Enter/Space çalışmıyor, ekran okuyucu tıklanabilir
+          olduğunu duyurmuyordu — yani sıralama YALNIZ fareyle yapılabiliyordu
+          (ölçüldü: tüm sayfalarda 47 başlık). Gerçek bir <button> hepsini bir
+          arada çözer: odak sırasına girer, Enter/Space'i tarayıcı kendisi
+          tetikler, rolü doğal olarak duyurulur. `aria-sort` th'de kalır (ARIA
+          onu hücrede bekler); buton yalnız etkileşimi taşır.
+          Görsel sonuç aynı: buton satır-içi blok, hücre hizasını flex ile
+          sürdürüyor ve tablo hizası bozulmuyor. */}
+      <button
+        type="button"
+        onClick={() => onClick(sortKey)}
+        aria-label={
+          typeof label === "string"
+            ? `${label} kolonuna göre sırala${active ? (dir === "asc" ? " (şu an artan)" : " (şu an azalan)") : ""}`
+            : undefined
+        }
+        // `font: inherit` şart: buton tarayıcı varsayılanı olan küçük/sans
+        // tipografiyi getirir ve `th`nin mono+uppercase+aralıklı görünümünü
+        // bozar. Tek satırda aile, boyut, kalınlık ve satır yüksekliğini devralır.
+        style={{ font: "inherit", letterSpacing: "inherit" }}
+        className={`inline-flex w-full items-center gap-1 ${justifyClass(align)} cursor-pointer
+          text-inherit uppercase hover:transition-colors rounded-sm
+          hover:text-neon focus:outline-none focus-visible:ring-1 focus-visible:ring-neon`}
+      >
+        {label}
+        <span aria-hidden="true" className={active ? "text-neon" : "opacity-30"}>{arrow}</span>
+      </button>
     </th>
   );
 }
@@ -167,7 +204,7 @@ export function SearchBox({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? "Ara…"}
-        className="card mono text-sm w-full bg-ink-2 outline-none focus:border-neon pl-9 pr-3 py-2"
+        className={`card mono text-sm w-full bg-ink-2 outline-none focus:border-neon pl-9 pr-3 py-2 ${FOCUS_RING}`}
       />
     </div>
   );
@@ -208,7 +245,7 @@ export function MultiChips<T extends string>({
             key={opt}
             type="button"
             onClick={() => onToggle(opt)}
-            className="mono text-xs px-3 py-1.5 rounded-full border transition-colors"
+            className={`mono text-xs px-3 py-1.5 rounded-full border hover:transition-colors ${FOCUS_RING}`}
             style={
               on
                 ? { color: c, borderColor: c + "80", background: c + "1a" }
@@ -224,7 +261,7 @@ export function MultiChips<T extends string>({
         <button
           type="button"
           onClick={onAll}
-          className="mono text-[11px] text-txt-dim hover:text-neon ml-1 transition-colors"
+          className={`mono text-[11px] text-txt-dim hover:text-neon ml-1 hover:transition-colors rounded-sm ${FOCUS_RING}`}
         >
           tümü
         </button>
@@ -233,7 +270,7 @@ export function MultiChips<T extends string>({
         <button
           type="button"
           onClick={onNone}
-          className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+          className={`mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors rounded-sm ${FOCUS_RING}`}
         >
           hiçbiri
         </button>
@@ -264,7 +301,7 @@ export function SegTabs<T extends string>({
           key={t.id}
           type="button"
           onClick={() => onChange(t.id)}
-          className={`mono text-sm px-4 py-2 rounded-lg transition-colors ${
+          className={`mono text-sm px-4 py-2 rounded-lg hover:transition-colors ${FOCUS_RING} ${
             active === t.id ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"
           }`}
         >
@@ -306,7 +343,7 @@ export function RangeMin({
           const n = Number(e.target.value);
           onChange(Math.max(min, Number.isFinite(n) ? n : min));
         }}
-        className="w-20 mono text-sm px-2 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon text-txt"
+        className={`w-20 mono text-sm px-2 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon text-txt ${FOCUS_RING}`}
       />
       {suffix && <span className="text-txt-dim">{suffix}</span>}
     </label>
@@ -338,7 +375,7 @@ export function CsvBtn<T extends Record<string, unknown>>({
         // downloadCsv başlık tipi { key: string; label: string } — keyof daraltmasını gevşet.
         downloadCsv(filename, rows, cols as { key: string; label: string }[]);
       }}
-      className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed"
+      className={`mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon hover:transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed ${FOCUS_RING}`}
     >
       {label}
     </button>
@@ -348,30 +385,82 @@ export function CsvBtn<T extends Record<string, unknown>>({
 // ════════════════════════════════════════════════════════════════════════════
 // StatCard — küçük KPI kartı (etiket + değer + opsiyonel alt satır).
 // color verilirse değer o renkte; yoksa neon-text varsayılanı.
+//
+// İKİ EKLEME (dense, chip) TAMAMEN ADDITIVE'DİR. Kod tabanında 31 JSX çağrısı
+// var (compare, insights, product, rankings, sku, stock-alerts, stok, stores,
+// upload) ve hiçbiri bu iki prop'u geçmiyor; ikisi de verilmediğinde basılan
+// HTML eskisiyle BAYT BAYT aynıdır (react-dom/server ile ölçüldü, 16 farklı
+// prop kombinasyonunda fark 0). Bu yüzden yeni yoğun varyant, mevcut dokuz
+// sayfanın görünümünü hiçbir şekilde değiştirmiyor.
 // ════════════════════════════════════════════════════════════════════════════
 export function StatCard({
   label,
   value,
   sub,
   color,
+  dense = false,
+  chip,
 }: {
   label: ReactNode;
   value: ReactNode;
   sub?: ReactNode;
   /** Değer rengi (hex/css); yoksa neon. */
   color?: string;
+  /**
+   * Yoğun varyant: dolgu p-4 → p-3, değer text-2xl → text-xl, rakamlar
+   * `tabular-nums` ile eşit genişlikte. Dört kartın tek satırda 92 px'e
+   * sığması için; sayısal kolonların dikey hizası da bununla düzeliyor.
+   */
+  dense?: boolean;
+  /**
+   * Değerin yanında birim rozeti — "PSF" (brüt raf değeri) / "NET" (akış).
+   * Aynı ekranda brüt ve net tutar yan yana durduğunda hangisinin ne olduğu
+   * yalnız alt satırdan okunuyordu; rozet bunu değerin kendisine yapıştırır.
+   */
+  chip?: { label: string; color: string };
 }) {
+  // Etiket/alt satır: varsayılanda text-[10px] (mevcut 31 çağrının görünümü
+  // KORUNUR), dense'te text-[11px]. Neden: yeni yönetici özeti sayfası
+  // tipografiyi 4 kademeye kilitliyor ve en küçük kademe 11 px — 10 px'lik
+  // etiket o sayfada erişilebilirlik ölçütünü (11 px altı font = 0) düşürüyor.
+  // Yani boyut farkı dense'in bir yan etkisi değil, amacının parçası.
+  const smallTxt = dense ? "text-[11px]" : "text-[10px]";
+  const valueCls =
+    `${dense ? "text-xl tabular-nums" : "text-2xl"} font-bold mono mt-1 ${color ? "" : "neon-text"}`;
+  const valueStyle = color ? { color } : undefined;
+
   return (
-    <div className="card p-4">
-      <div className="mono text-[10px] text-txt-dim tracking-wider">{label}</div>
-      <div
-        className={`text-2xl font-bold mono mt-1 ${color ? "" : "neon-text"}`}
-        style={color ? { color } : undefined}
-      >
-        {value}
-      </div>
+    <div className={`card ${dense ? "p-3" : "p-4"}`}>
+      <div className={`mono ${smallTxt} text-txt-dim tracking-wider`}>{label}</div>
+      {chip ? (
+        // ROZETLİ KOLDA DEĞER AYRI BİR <span>'E ALINIR. Sebep sunum modu:
+        // `DemoMask.tsx:107` yalnız YAPRAK düğümleri maskeliyor (children.length
+        // === 0). Rozeti değer kabının içine kardeş olarak koysaydık kap artık
+        // yaprak olmaz ve içindeki tutar sunumda MASKELENMEZ, yani para sızar.
+        // Değer kendi yaprağında kalıyor, rozet ayrı yaprak.
+        <div className={`${valueCls} flex items-baseline gap-1.5`}>
+          <span style={valueStyle}>{value}</span>
+          <span
+            className="mono text-[11px] font-normal px-1.5 py-0.5 rounded border shrink-0"
+            // MultiChips'in mevcut kalıbı: metin rengi tam, kenar +'40',
+            // dolgu +'14' — yeni renk icat edilmiyor, çağıran ACT/RETAILER
+            // haritasından bir renk geçiyor.
+            style={{
+              color: chip.color,
+              borderColor: chip.color + "40",
+              background: chip.color + "14",
+            }}
+          >
+            {chip.label}
+          </span>
+        </div>
+      ) : (
+        <div className={valueCls} style={valueStyle}>
+          {value}
+        </div>
+      )}
       {sub != null && sub !== "" && (
-        <div className="mono text-[10px] text-txt-dim mt-0.5">{sub}</div>
+        <div className={`mono ${smallTxt} text-txt-dim mt-0.5`}>{sub}</div>
       )}
     </div>
   );

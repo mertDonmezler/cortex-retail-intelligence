@@ -1,7 +1,7 @@
 "use client";
 export default function Error({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
-    <div className="card p-10 text-center max-w-lg mx-auto mt-10">
+    <div className="card card-flat p-10 text-center max-w-lg mx-auto mt-10">
       <div className="text-2xl mb-2 neon-text mono">! HATA</div>
       <div className="font-semibold">Bir şeyler ters gitti</div>
       <p className="text-txt-dim text-sm mt-2 mono">

@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { fetchJson } from "@/lib/fetchJson";
-import { SearchBox, MultiChips, SegTabs, CsvBtn, StatCard } from "@/components/Controls";
-import { colorOf } from "@/lib/format";
+import { fetchJson } from "@/lib/fetchJson";import { SearchBox, MultiChips, SegTabs, CsvBtn, StatCard } from "@/components/Controls";
+import { colorOf, fmtDate, fmtHafta } from "@/lib/format";
+import { sonTamamlanmisHafta, gecikmeHaftasi, GECIKME_ROZET } from "@/lib/compute";
 
 interface Insight {
   severity: "critical" | "warning" | "positive" | "info";
@@ -12,6 +11,7 @@ interface Insight {
   title: string;
   detail: string;
   metric?: string;
+  week?: string; // sinyalin dayandığı veri haftası (API gönderiyor)
 }
 
 type Severity = Insight["severity"];
@@ -210,7 +210,7 @@ export default function InsightsPage() {
               onClick={() => focusSeverity(s)}
               disabled={empty}
               aria-pressed={onlyThis}
-              className="text-left transition-transform enabled:hover:scale-[1.02] rounded-2xl disabled:opacity-45 disabled:cursor-not-allowed"
+              className="text-left rounded-2xl disabled:opacity-45 disabled:cursor-not-allowed"
               style={{ outline: onlyThis ? `1px solid ${SEV[s].color}` : "none", outlineOffset: 2 }}
               title={
                 empty
@@ -254,7 +254,7 @@ export default function InsightsPage() {
               <button
                 type="button"
                 onClick={() => setGrouped((g) => !g)}
-                className={`mono text-xs px-3 py-2 rounded-lg border transition-colors ${
+                className={`mono text-xs px-3 py-2 rounded-lg border hover:transition-colors ${
                   grouped
                     ? "border-neon/60 text-neon bg-neon/10"
                     : "border-line text-txt-dim hover:border-neon hover:text-neon"
@@ -300,7 +300,7 @@ export default function InsightsPage() {
               <button
                 type="button"
                 onClick={resetFilters}
-                className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+                className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors"
               >
                 ✕ filtreleri sıfırla
               </button>
@@ -325,15 +325,12 @@ export default function InsightsPage() {
             {byRetailer.map((r, idx) => {
               const onlyThis = retSel.length === 1 && retSel[0] === r.retailer;
               return (
-                <motion.button
+                <button
                   key={r.retailer}
                   type="button"
                   onClick={() =>
                     setRetSel((cur) => (cur.length === 1 && cur[0] === r.retailer ? retailers : [r.retailer]))
                   }
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: Math.min(idx * 0.03, 0.3) }}
                   aria-pressed={onlyThis}
                   className="block w-full text-left group"
                   title={onlyThis ? "Tüm firmalara dön" : `Yalnızca ${r.retailer} sinyalleri`}
@@ -344,7 +341,7 @@ export default function InsightsPage() {
                         className="inline-block w-2 h-2 rounded-full shrink-0"
                         style={{ background: colorOf(r.retailer) }}
                       />
-                      <span className={onlyThis ? "neon-text" : "group-hover:text-neon transition-colors"}>
+                      <span className={onlyThis ? "neon-text" : "group-hover:text-neon group-hover:transition-colors"}>
                         {r.retailer}
                       </span>
                     </span>
@@ -353,19 +350,16 @@ export default function InsightsPage() {
                   <div className="h-2.5 rounded-full bg-ink-3 overflow-hidden flex">
                     {SEV_ORDER.map((s) =>
                       r.sev[s] > 0 ? (
-                        <motion.div
+                        <div
                           key={s}
                           className="h-full first:rounded-l-full last:rounded-r-full"
-                          style={{ background: SEV[s].color }}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(r.sev[s] / maxRetTotal) * 100}%` }}
-                          transition={{ delay: Math.min(idx * 0.03, 0.3) + 0.1, duration: 0.5 }}
+                          style={{ background: SEV[s].color, width: `${(r.sev[s] / maxRetTotal) * 100}%` }}
                           title={`${SEV[s].label}: ${r.sev[s]}`}
                         />
                       ) : null
                     )}
                   </div>
-                </motion.button>
+                </button>
               );
             })}
           </div>
@@ -375,7 +369,7 @@ export default function InsightsPage() {
       {loading ? (
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="card p-5 animate-pulse h-20" />
+            <div key={i} className="card card-flat p-5 h-20" />
           ))}
         </div>
       ) : err ? null : safeInsights.length === 0 ? (
@@ -413,7 +407,7 @@ export default function InsightsPage() {
               </div>
               <div className="space-y-3">
                 {g.items.map((ins, i) => (
-                  <InsightCard key={`${g.sev}-${i}`} ins={ins} i={i} />
+                  <InsightCard key={`${g.sev}-${i}`} ins={ins} />
                 ))}
               </div>
             </div>
@@ -422,7 +416,7 @@ export default function InsightsPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((ins, i) => (
-            <InsightCard key={i} ins={ins} i={i} />
+            <InsightCard key={i} ins={ins} />
           ))}
         </div>
       )}
@@ -431,13 +425,17 @@ export default function InsightsPage() {
 }
 
 // ── Tek sinyal kartı — orijinal görsel kalıp korunarak ayrıştırıldı ──
-function InsightCard({ ins, i }: { ins: Insight; i: number }) {
+function InsightCard({ ins }: { ins: Insight }) {
   const sev = SEV[ins.severity];
+  // VERİ YAŞI ROZETİ. Sinyal firmanın son raporundan doğuyor; rapor eskiyse
+  // "sonraki hafta tahmini" çoktan geçmiş bir haftayı anlatıyor (ölçülen: Nezih,
+  // veri 3 Ağu iken 7 Eylül'de "gelecek hafta ~315 adet"). Eşik ve çapa
+  // /api/health ile aynı (takvim haftası, GECIKME_ROZET).
+  const takvim = sonTamamlanmisHafta(new Date());
+  const gecikme = ins.week ? gecikmeHaftasi(ins.week, takvim) : null;
+  const eski = gecikme != null && gecikme >= GECIKME_ROZET;
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: Math.min(i, 12) * 0.04, duration: 0.3 }}
+    <div
       className="card p-5 flex items-start gap-4"
       style={{ background: sev.bg }}
     >
@@ -453,6 +451,19 @@ function InsightCard({ ins, i }: { ins: Insight; i: number }) {
             {ins.retailer}
           </span>
           <span className="font-semibold">{ins.title}</span>
+          {ins.week && (
+            /* Sinyalin dayandığı hafta. Kartların çoğu aynı haftadan geldiği
+               için tarih tekrarı gürültüydü; takvim haftasında "veri güncel"
+               yazar. Span KALDIRILMAZ: boşluk bir tarih bildirimi değildir,
+               "hangi haftadan" sorusunun cevabı bu sayfada başka yerde yok. */
+            <span className="mono text-[10px] text-txt-dim">veri {fmtHafta(ins.week, takvim)}</span>
+          )}
+          {eski && (
+            <span className="mono text-[10px] px-1.5 py-0.5 rounded"
+              style={{ color: "#f8b00b", border: "1px solid #f8b00b40" }}>
+              {gecikme} HF ESKİ VERİ
+            </span>
+          )}
         </div>
         <p className="text-txt-dim text-sm mt-1">{ins.detail}</p>
       </div>
@@ -461,6 +472,6 @@ function InsightCard({ ins, i }: { ins: Insight; i: number }) {
           {ins.metric}
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

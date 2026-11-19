@@ -1,23 +1,73 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { fmtInt, fmtMoney, RETAILERS, RETAILER_COLORS, colorOf } from "@/lib/format";
-import { downloadCsv } from "@/lib/csv";
+import { fmtInt, fmtMoney, RETAILERS, RETAILER_COLORS, colorOf, fmtHafta, fmtDate } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
-import { parseProductMeta } from "@/lib/compute";
-import { SortableTh, MultiChips, RangeMin, type SortDir } from "@/components/Controls";
+import { bekleme } from "@/lib/hareket";
+import { izle } from "@/lib/mesgul";
+import { kanalAdi } from "@/lib/kanal";
+import { useAsistanBaglami } from "@/lib/asistan-baglam";
+import { parseProductMeta, COVERAGE_LOW, COVERAGE_HIGH, COVERAGE_LABELS, DEAD_STOCK_MIN_WEEKS, DEAD_STOCK_HIGH_WEEKS, VELOCITY_WEEKS, GECIKME_ROZET } from "@/lib/compute";
+import {
+  SortableTh, MultiChips, RangeMin, SegTabs, SearchBox, StatCard, CsvBtn, useSort,
+  type SortDir,
+} from "@/components/Controls";
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  kritik: { label: "Az stok", cls: "text-red-300 bg-red-500/15 border-red-500/40" },
-  fazla: { label: "Fazla stok", cls: "text-yellow-300 bg-yellow-500/10 border-yellow-500/30" },
-  saglikli: { label: "Sağlıklı", cls: "text-neon bg-neon/10 border-neon/30" },
+// Durum etiketleri EŞİK SABİTLERİNDEN türer (compute.ts tek kaynak); daha önce
+// "<8 hf" / ">30 hf" gibi ifadeler UI'da elle yazılıydı ve eşik değişince kayıyordu.
+const STATUS: Record<string, { label: string; cls: string; color: string }> = {
+  kritik: { label: "Az stok", cls: "text-red-300 bg-red-500/15 border-red-500/40", color: "#ff5555" },
+  fazla: { label: "Fazla stok", cls: "text-yellow-300 bg-yellow-500/10 border-yellow-500/30", color: "#f8b00b" },
+  saglikli: { label: "Sağlıklı", cls: "text-neon bg-neon/10 border-neon/30", color: "#1FF80B" },
 };
 const COLORS = RETAILER_COLORS;
 const col = colorOf;
 
+// Tek sayı biçimleyici — önce aynı gövde `fmtAvg` ve `fmtVel` adıyla iki kez vardı.
+const fmt1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString("tr-TR");
+
+// ÜRÜN FİRMANIN RAPORUNDAN DÜŞMÜŞ rozeti. Stoğu kalıntıdır; manşet toplamlarına
+// ve durum sayımlarına GİRMEZ.
+//
+// METİN DEĞİŞTİ: eskiden "⚠ bayat · listeden düştü" yazıyordu ve aynı ekranda
+// "bayat" kelimesi İKİ FARKLI şeyi anlatıyordu — (a) ürünün firmanın raporundan
+// düşmesi, (b) firmanın haftalardır rapor göndermemesi. İkisi zıt aksiyon
+// gerektiriyor: ilki "bu stok gerçekten var mı" sorusu, ikincisi "rapor gönder".
+function StaleBadge({ lastSeen, windowWeeks }: { lastSeen?: string | null; windowWeeks: number }) {
+  const when = lastSeen ? `son görülme ${lastSeen}` : `${windowWeeks}+ hafta önce`;
+  return (
+    <span
+      className="mono text-[10px] px-2 py-0.5 rounded border whitespace-nowrap text-txt-dim border-line bg-ink-2"
+      title={`Bu ürün firmanın güncel haftalık raporunda yok (${when}). Stoğu listeden düşmüş sayılır; toplamlara eklenmez.`}
+    >
+      FİRMA RAPORUNDA YOK
+    </span>
+  );
+}
+
+// KAPANDI rozeti: satıştan çekilmiş / tasfiye edilmiş kalem (kapali-urunler.ts).
+// Satır listede KALIR — geçmişi silmiyoruz — ama hiçbir sayıma ve karara girmez.
+const KAPALI_METIN: Record<string, string> = {
+  tasfiye: "tasfiye",
+  "satistan-cekildi": "satıştan çekildi",
+  "iade-alindi": "iade alındı",
+};
+function KapaliBadge({ neden, tarih }: { neden?: string | null; tarih?: string | null }) {
+  const ad = (neden && KAPALI_METIN[neden]) || "kapandı";
+  return (
+    <span
+      className="mono text-[10px] px-2 py-0.5 rounded border whitespace-nowrap"
+      style={{ color: "#7d927d", borderColor: "#7d927d40" }}
+      title="Bu kalem satıştan çekildi; geçmiş verisi duruyor ama karar ve sayımlara girmiyor."
+    >
+      KAPANDI · {ad}{tarih ? ` ${tarih}` : ""}
+    </span>
+  );
+}
+
 type StatusTab = "kritik" | "fazla" | "saglikli" | "all";
 type View = "durum" | "sure" | "olu";
+const VIEW_ADI: Record<View, string> = { durum: "stok durumu", sure: "stok süresi", olu: "ölü stok" };
 // Durum tablosunda sıralanabilir sayısal kolonlar (alan adları item üzerinde birebir).
 type DurumSortKey = "avg_weekly" | "last_stock" | "coverage" | "stock_value";
 
@@ -58,6 +108,17 @@ export default function StokPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const allFirms: string[] = data?.firms ?? [];
+  // Asistan: hangi görünüme ve hangi filtreye bakıldığı.
+  useAsistanBaglami({
+    "görünüm": VIEW_ADI[view],
+    ...(view === "durum" ? {
+      sekme: status === "all" ? "hepsi" : STATUS[status]?.label ?? status,
+      ...(firms.length && firms.length < allFirms.length ? { firmalar: firms.map(kanalAdi).join(", ") } : {}),
+      ...(search.trim() ? { arama: search.trim() } : {}),
+    } : {}),
+  });
+  const velWeeks: number = data?.velocity_weeks ?? VELOCITY_WEEKS;
+  const winWeeks: number = data?.window_weeks ?? 12;
 
   // Her satıra ürün kimliğini (brand/team/type) bir kez ekle — chip seçenekleri ve filtre buradan.
   const enriched = useMemo(
@@ -70,9 +131,12 @@ export default function StokPage() {
   );
 
   // Firma bazında AŞIRI STOK (fazla) PSF değeri toplamı — "ne kadar ₺ takılı".
+  // BAYAT satırlar HARİÇ: raporlardan düşmüş ürünün stoğu gerçek değil.
   const overstockValue = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const i of enriched as any[]) if (i.status === "fazla") m[i.retailer] = (m[i.retailer] || 0) + (i.stock_value || 0);
+    for (const i of enriched as any[]) {
+      if (i.status === "fazla" && !i.stale) m[i.retailer] = (m[i.retailer] || 0) + (i.stock_value || 0);
+    }
     return m;
   }, [enriched]);
 
@@ -94,8 +158,9 @@ export default function StokPage() {
     setTypes((p) => p.filter((x) => metaOptions.types.includes(x)));
   }, [metaOptions]);
 
+  // Durum sayımları BAYATSIZ (API'nin counts'u ile aynı mantık).
   const counts = useMemo(() => {
-    const sel = enriched.filter((i: any) => firms.includes(i.retailer));
+    const sel = enriched.filter((i: any) => firms.includes(i.retailer) && !i.stale);
     return {
       kritik: sel.filter((i: any) => i.status === "kritik").length,
       fazla: sel.filter((i: any) => i.status === "fazla").length,
@@ -136,6 +201,8 @@ export default function StokPage() {
     }
     const ord: Record<string, number> = { kritik: 0, fazla: 1, saglikli: 2 };
     return [...arr].sort((a: any, b: any) => {
+      // Bayatlar en sona: listede kalırlar ama aksiyon sırasını kirletmezler.
+      if (!!a.stale !== !!b.stale) return a.stale ? 1 : -1;
       if (a.status !== b.status) return ord[a.status] - ord[b.status];
       return a.status === "kritik"
         ? (a.coverage ?? 0) - (b.coverage ?? 0)
@@ -143,8 +210,13 @@ export default function StokPage() {
     });
   }, [enriched, firms, status, brands, teams, types, covMin, covMax, search, sortKey, sortDir]);
 
-  // Görünen listenin toplam PSF stok değeri (Toyzz + Fazla seçince = Toyzz aşırı stok toplamı).
-  const itemsValue = useMemo(() => (items as any[]).reduce((a, i) => a + (i.stock_value || 0), 0), [items]);
+  // MANŞET: görünen listenin PSF stok değeri — BAYAT satırlar hariç (yoksa toplam
+  // gerçeğin üstünde kalır). Bayatların toplamı ayrı küçük satırda gösterilir.
+  const shownLive = useMemo(() => (items as any[]).filter((i) => !i.stale), [items]);
+  const shownStale = useMemo(() => (items as any[]).filter((i) => i.stale), [items]);
+  const itemsValue = useMemo(() => shownLive.reduce((a, i) => a + (i.stock_value || 0), 0), [shownLive]);
+  const staleValue = useMemo(() => shownStale.reduce((a, i) => a + (i.stock_value || 0), 0), [shownStale]);
+  const staleUnits = useMemo(() => shownStale.reduce((a, i) => a + (i.last_stock || 0), 0), [shownStale]);
 
   function toggleFirm(f: string) {
     setFirms((p) => (p.includes(f) ? p.filter((x) => x !== f) : [...p, f]));
@@ -178,21 +250,21 @@ export default function StokPage() {
     return arr.length;
   }, [enriched, firms, status]);
 
-  function exportDurumCsv() {
-    if (!items.length) return;
-    downloadCsv("cortex-stok-durumu", items.map((r: any) => ({
-      firma: r.retailer, urun: r.sku_name, barkod: r.barkod ?? "",
-      haftalik_ort: Math.round(r.avg_weekly * 10) / 10, stok: r.last_stock,
-      stok_degeri_psf: r.stock_value ?? 0,
-      kac_hafta: r.coverage == null ? "" : Math.round(r.coverage * 10) / 10,
-      durum: STATUS[r.status]?.label ?? r.status,
-    })), [
-      { key: "firma", label: "Firma" }, { key: "urun", label: "Ürün" }, { key: "barkod", label: "Barkod" },
-      { key: "haftalik_ort", label: "Haftalık Ort. Satış" }, { key: "stok", label: "Stok" },
-      { key: "stok_degeri_psf", label: "Stok Değeri (PSF)" },
-      { key: "kac_hafta", label: "Kaç Hafta Yeter" }, { key: "durum", label: "Durum" },
-    ]);
-  }
+  const durumCsvRows = useMemo(
+    () =>
+      (items as any[]).map((r) => ({
+        firma: r.retailer, urun: r.sku_name, barkod: r.barkod ?? "",
+        haftalik_hiz: fmt1(r.avg_weekly), stok: r.last_stock,
+        stok_degeri_psf: r.stock_value ?? 0,
+        kac_hafta: r.coverage == null ? "" : fmt1(r.coverage),
+        durum: STATUS[r.status]?.label ?? r.status,
+        bayat: r.kapali ? "KAPANDI" : r.stale ? "FIRMA RAPORUNDA YOK" : "",
+        son_gorulme: r.stale ? (r.last_seen ?? `${winWeeks}+ hf önce`) : "",
+        veri_haftasi: r.dataWeek ?? "",
+        tahmini_stok: r.drenaj ? r.stokYaslandirilmis ?? "" : "",
+      })),
+    [items, winWeeks]
+  );
 
   const statusTabs: { id: StatusTab; label: string }[] = [
     { id: "kritik", label: `🔴 Az stok (${counts.kritik})` },
@@ -217,10 +289,19 @@ export default function StokPage() {
           </p>
         </div>
         {view === "durum" && (
-          <button onClick={exportDurumCsv} disabled={!items.length}
-            className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40">
-            ⬇ CSV indir
-          </button>
+          <CsvBtn
+            filename="cortex-stok-durumu"
+            rows={durumCsvRows}
+            cols={[
+              { key: "firma", label: "Firma" }, { key: "urun", label: "Ürün" }, { key: "barkod", label: "Barkod" },
+              { key: "haftalik_hiz", label: `Haftalık Hız (son ${velWeeks} hf)` }, { key: "stok", label: "Stok" },
+              { key: "stok_degeri_psf", label: "Stok Değeri (PSF)" },
+              { key: "kac_hafta", label: "Kaç Hafta Yeter" }, { key: "durum", label: "Durum" },
+              { key: "bayat", label: "Kapsam dışı" }, { key: "son_gorulme", label: "Son Görülme" },
+              { key: "veri_haftasi", label: "Veri haftası" }, { key: "tahmini_stok", label: "Tahmini stok" },
+            ]}
+            label="⬇ CSV indir"
+          />
         )}
       </div>
 
@@ -228,7 +309,7 @@ export default function StokPage() {
       <div className="flex gap-1 flex-wrap border-b border-line">
         {viewTabs.map((t) => (
           <button key={t.id} onClick={() => setView(t.id)}
-            className={`mono text-sm px-4 py-2 -mb-px border-b-2 transition-colors ${view === t.id ? "border-neon text-neon" : "border-transparent text-txt-dim hover:text-txt"}`}>
+            className={`mono text-sm px-4 py-2 -mb-px border-b-2 hover:transition-colors ${view === t.id ? "border-neon text-neon" : "border-transparent text-txt-dim hover:text-txt"}`}>
             {t.label}
           </button>
         ))}
@@ -239,6 +320,44 @@ export default function StokPage() {
       {/* ═════════ 1) STOK DURUMU ═════════ */}
       {view === "durum" && (
         <>
+          {/* Hız/kapsam ölçütü ve bayat uyarısı — kullanıcı neyi gördüğünü bilsin. */}
+          <p className="text-txt-dim mono text-xs">
+            Kapsam = stok ÷ <span className="text-txt">son {velWeeks} haftalık</span> satış hızı ·
+            &lt;{COVERAGE_LOW} hf sipariş, &gt;{COVERAGE_HIGH} hf kampanya
+            {data?.stale?.n ? (
+              <> · <span style={{ color: "#f8b00b" }}>{data.stale.n} kalem firma raporunda yok</span> ({fmtInt(data.stale.stock)} adet) toplamlardan çıkarıldı</>
+            ) : null}
+            {data?.kapali?.n ? (
+              <> · <span className="text-txt-dim">{data.kapali.n} kapalı kalem</span> ({fmtInt(data.kapali.stock)} adet) listede ama sayımlarda değil</>
+            ) : null}
+          </p>
+
+          {/* VERİ YAŞI BANDI — hangi firmanın stoğu kaç haftalık.
+              "Tahmini" kolonu bu gecikmeden türüyor; kolonu açıklamayan bir
+              tahmin, kaynağı belirsiz bir sayıdan farksız olur. */}
+          {data?.veri?.byRetailer?.length > 0 && (
+            <div className="card p-3">
+              <div className="mono text-[10px] tracking-wider text-txt-dim mb-1">
+                STOK VERİSİNİN YAŞI · karar haftası {data.veri.takvimHaftasi}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {data.veri.byRetailer.map((r: any) => (
+                  <span key={r.retailer} className="mono text-[11px]">
+                    <span style={{ color: COLORS[r.retailer] ?? "#7d927d" }}>{r.retailer}</span>{" "}
+                    <span className="text-txt-dim">{r.dataWeek ?? "veri yok"}</span>
+                    {r.gecikmeHf >= 2 && (
+                      <span style={{ color: "#f8b00b" }}> · {r.gecikmeHf} hf geride</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+              <div className="mono text-[10px] text-txt-dim mt-1">
+                Durum etiketleri ve sayımlar RAPORLANAN stokla hesaplanır; &quot;tahmini&quot; kolonu
+                yalnız bilgi amaçlıdır (raporlanan stok − hız × gecikme).
+              </div>
+            </div>
+          )}
+
           {/* AŞIRI STOK (fazla) PSF değeri — firma başına bağlı tutar; tıkla → o firmayı+fazlayı süz */}
           {Object.keys(overstockValue).length > 0 && (
             <div className="space-y-2">
@@ -248,7 +367,7 @@ export default function StokPage() {
                   const on = firms.length === 1 && firms[0] === f && status === "fazla";
                   return (
                     <button key={f} onClick={() => { setFirms([f]); setStatus("fazla"); }}
-                      className="card p-4 text-left hover:border-neon/50 transition-colors"
+                      className="card p-4 text-left hover:border-neon/50"
                       style={on ? { borderColor: "#f8b00b80", background: "#f8b00b12" } : undefined}
                       title={`${f} aşırı stok toplamı — tıkla: bu firma + fazla stok`}>
                       <div className="mono text-[10px] tracking-wider" style={{ color: colorOf(f) }}>{f.toUpperCase()}</div>
@@ -260,34 +379,14 @@ export default function StokPage() {
             </div>
           )}
           <div className="card p-4 space-y-3">
+            <MultiChips label="Firmalar:" options={allFirms} selected={firms}
+              onToggle={toggleFirm} colorOf={(f) => COLORS[f] ?? "#1FF80B"}
+              onAll={() => setFirms(allFirms)} onNone={() => setFirms([])} />
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="mono text-xs text-txt-dim mr-1">Firmalar:</span>
-              {allFirms.map((f) => {
-                const on = firms.includes(f);
-                return (
-                  <button key={f} onClick={() => toggleFirm(f)}
-                    className="mono text-xs px-3 py-1.5 rounded-full border transition-colors"
-                    style={on
-                      ? { color: COLORS[f] ?? "#1FF80B", borderColor: (COLORS[f] ?? "#1FF80B") + "80", background: (COLORS[f] ?? "#1FF80B") + "1a" }
-                      : { color: "#7d927d", borderColor: "#1f2a1f" }}>
-                    {on ? "✓ " : ""}{f}
-                  </button>
-                );
-              })}
-              <button onClick={() => setFirms(allFirms)} className="mono text-[11px] text-txt-dim hover:text-neon ml-1">tümü</button>
-              <button onClick={() => setFirms([])} className="mono text-[11px] text-txt-dim hover:text-neon">hiçbiri</button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex gap-1 flex-wrap">
-                {statusTabs.map((t) => (
-                  <button key={t.id} onClick={() => setStatus(t.id)}
-                    className={`mono text-xs px-3 py-1.5 rounded ${status === t.id ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>
-                    {t.label}
-                  </button>
-                ))}
+              <SegTabs tabs={statusTabs} active={status} onChange={setStatus} />
+              <div className="flex-1 min-w-48">
+                <SearchBox value={search} onChange={setSearch} placeholder="ürün / barkod…" />
               </div>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 ürün / barkod…"
-                className="card mono text-sm px-3 py-1.5 bg-ink-2 outline-none focus:border-neon flex-1 min-w-48" />
             </div>
 
             {/* Ürün kimliği (marka / takım / tip) — sku adından çıkarılır */}
@@ -317,7 +416,7 @@ export default function StokPage() {
                 </label>
                 {durumFiltered && (
                   <button onClick={clearDurumFilters}
-                    className="mono text-[11px] text-txt-dim hover:text-neon transition-colors">
+                    className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors">
                     ✕ filtreyi temizle
                   </button>
                 )}
@@ -326,51 +425,74 @@ export default function StokPage() {
           </div>
 
           {loading ? (
-            <div className="card p-10 text-center mono text-txt-dim animate-pulse">Yükleniyor…</div>
+            <div className="card card-flat p-10 text-center mono text-txt-dim">Yükleniyor…</div>
           ) : err || !data ? null : (
-            <div className="card p-6 overflow-x-auto">
-              <div className="flex items-center justify-between mb-3">
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <h2 className="font-bold">{status === "kritik" ? "Az stok (sipariş gerekebilir)" : status === "fazla" ? "Fazla stok (kampanya)" : status === "saglikli" ? "Sağlıklı" : "Tüm stok durumu"}</h2>
                 <span className="mono text-xs text-txt-dim">
                   {durumFiltered ? `${items.length} / ${scopeTotal}` : `${items.length}`} kalem · <span style={{ color: "#f8b00b" }}>{fmtMoney(itemsValue)} PSF</span>
                 </span>
               </div>
+              {/* Bayatların toplamı AYRI satırda — manşetten çıkarıldığı görünür olsun. */}
+              {shownStale.length > 0 && (
+                <div className="mono text-[11px] text-txt-dim mb-3 pb-2 border-b border-line/60">
+                  ⚠ bunun dışında <span className="text-txt">{shownStale.length} kalem firmanın raporunda yok</span> ({fmtInt(staleUnits)} adet ·{" "}
+                  {fmtMoney(staleValue)} PSF) listede en altta gösteriliyor — güncel raporlarda olmadığı için toplama eklenmedi.
+                </div>
+              )}
               {items.length ? (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>#</th><th>Firma</th><th>Ürün</th>
-                      <SortableTh label="Haftalık Ort." sortKey="avg_weekly" align="right"
-                        active={sortKey === "avg_weekly"} dir={sortDir} onClick={toggleDurumSort} />
-                      <SortableTh label="Stok" sortKey="last_stock" align="right"
-                        active={sortKey === "last_stock"} dir={sortDir} onClick={toggleDurumSort} />
-                      <SortableTh label="Stok Değeri (PSF)" sortKey="stock_value" align="right"
-                        active={sortKey === "stock_value"} dir={sortDir} onClick={toggleDurumSort} />
-                      <SortableTh label="Kaç Hafta Yeter" sortKey="coverage" align="right"
-                        active={sortKey === "coverage"} dir={sortDir} onClick={toggleDurumSort} />
-                      <th>Durum</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((r: any, i: number) => {
-                      const st = STATUS[r.status] ?? STATUS.saglikli;
-                      return (
-                        <tr key={i}>
-                          <td className="mono text-txt-dim">{i + 1}</td>
-                          <td>
-                            <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ color: COLORS[r.retailer] ?? "#7d927d", border: `1px solid ${COLORS[r.retailer] ?? "#7d927d"}40` }}>{r.retailer}</span>
-                          </td>
-                          <td className="max-w-[340px] truncate" title={(r.barkod ? r.barkod + " · " : "") + r.sku_name}>{r.sku_name}</td>
-                          <td className="mono text-right">{Math.round(r.avg_weekly * 10) / 10}</td>
-                          <td className="mono text-right">{fmtInt(r.last_stock)}</td>
-                          <td className="mono text-right" style={{ color: "#f8b00b" }}>{r.stock_value ? fmtMoney(r.stock_value) : "—"}</td>
-                          <td className="mono text-right">{r.coverage == null ? "—" : `${Math.round(r.coverage * 10) / 10} hf`}</td>
-                          <td><span className={`mono text-[10px] px-2 py-0.5 rounded border ${st.cls}`}>{st.label}</span></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Firma</th><th>Ürün</th>
+                        <SortableTh label={`Hız (son ${velWeeks} hf)`} sortKey="avg_weekly" align="right"
+                          active={sortKey === "avg_weekly"} dir={sortDir} onClick={toggleDurumSort} />
+                        <SortableTh label="Stok" sortKey="last_stock" align="right"
+                          active={sortKey === "last_stock"} dir={sortDir} onClick={toggleDurumSort} />
+                        <th className="text-right">Tahmini</th>
+                        <SortableTh label="Stok Değeri (PSF)" sortKey="stock_value" align="right"
+                          active={sortKey === "stock_value"} dir={sortDir} onClick={toggleDurumSort} />
+                        <SortableTh label="Kaç Hafta Yeter" sortKey="coverage" align="right"
+                          active={sortKey === "coverage"} dir={sortDir} onClick={toggleDurumSort} />
+                        <th>Durum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((r: any, i: number) => {
+                        const st = STATUS[r.status] ?? STATUS.saglikli;
+                        return (
+                          <tr key={i} className={r.stale ? "opacity-60" : undefined}>
+                            <td className="mono text-txt-dim">{i + 1}</td>
+                            <td>
+                              <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ color: COLORS[r.retailer] ?? "#7d927d", border: `1px solid ${COLORS[r.retailer] ?? "#7d927d"}40` }}>{r.retailer}</span>
+                            </td>
+                            <td className="max-w-[340px] truncate" title={(r.barkod ? r.barkod + " · " : "") + r.sku_name}>{r.sku_name}</td>
+                            <td className="mono text-right">{fmt1(r.avg_weekly)}</td>
+                            <td className="mono text-right">{fmtInt(r.last_stock)}</td>
+                            {/* TAHMİNİ = raporlanan − hız×gecikme. /yonlendirme ile
+                                AYNI değer (aynı saf fonksiyon, aynı ağ dalı).
+                                Erimemiş satırda "—" yazılır; raporlanan sayıyı
+                                tekrar basmak iki kolonu aynı yapardı. */}
+                            <td className="mono text-right text-txt-dim text-[11px]">
+                              {r.drenaj ? fmtInt(r.stokYaslandirilmis ?? 0) : "—"}
+                            </td>
+                            <td className="mono text-right" style={{ color: "#f8b00b" }}>{r.stock_value ? fmtMoney(r.stock_value) : "—"}</td>
+                            <td className="mono text-right">{r.coverage == null ? "—" : `${fmt1(r.coverage)} hf`}</td>
+                            <td>
+                              {r.kapali
+                                ? <KapaliBadge neden={r.kapaliNeden} tarih={r.kapaliTarih} />
+                                : r.stale
+                                  ? <StaleBadge lastSeen={r.last_seen} windowWeeks={winWeeks} />
+                                  : <span className={`mono text-[10px] px-2 py-0.5 rounded border ${st.cls}`}>{st.label}</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <div className="mono text-sm text-txt-dim py-4">
                   {scopeTotal > 0 && durumFiltered ? (
@@ -389,7 +511,7 @@ export default function StokPage() {
       {view === "sure" && <CoverageView />}
 
       {/* ═════════ 3) ÖLÜ STOK ═════════ */}
-      {view === "olu" && <DeadStockView products={data?.products ?? []} loading={loading} />}
+      {view === "olu" && <DeadStockView products={data?.products ?? []} loading={loading} velWeeks={velWeeks} winWeeks={winWeeks} />}
     </div>
   );
 }
@@ -399,62 +521,78 @@ export default function StokPage() {
 // gelir; mağaza seçilince o mağazanın anlık coverage'ı /api/stock?retailer&store
 // üzerinden çekilir.
 type CovStatus = "kritik" | "fazla" | "saglikli";
-interface Sku { sku_name: string; avg_weekly: number; last_stock: number; coverage: number | null; status: CovStatus; }
+interface Sku {
+  sku_name: string; avg_weekly: number; last_stock: number;
+  coverage: number | null; status: CovStatus; stale?: boolean; last_seen?: string | null;
+}
 
+// Etiket ve renk EŞİK SABİTLERİNDEN türer (elle yazılmış "8"/"30" yok).
 const COV_META: Record<CovStatus, { label: string; color: string }> = {
-  kritik: { label: "Az stok (<8 hf)", color: "#ff5555" },
-  fazla: { label: "Fazla / kampanya (>30 hf)", color: "#f8b00b" },
-  saglikli: { label: "Sağlıklı (8–30 hf)", color: "#1FF80B" },
+  kritik: { label: COVERAGE_LABELS.kritik, color: "#ff5555" },
+  fazla: { label: COVERAGE_LABELS.fazla, color: "#f8b00b" },
+  saglikli: { label: COVERAGE_LABELS.saglikli, color: "#1FF80B" },
 };
 const fmtCov = (c: number | null) => (c == null ? "satmıyor" : c.toFixed(1) + " hf");
-const fmtAvg = (n: number) => (Math.round(n * 10) / 10).toLocaleString("tr-TR");
 
 function CoverageView() {
   const [retailer, setRetailer] = useState<string>(RETAILERS[3] ?? RETAILERS[0]); // Toyzz varsayılan
   const [store, setStore] = useState<string>(""); // "" = firma geneli
   const [stores, setStores] = useState<string[]>([]);
   const [data, setData] = useState<any>(null);
+  // Ekrandaki verinin firma|mağaza anahtarı. Eskiden yalnız kartlar
+  // soluklaşıyordu; eski firmanın satırları tam parlaklıkta kalıyordu.
+  const [veriAnahtari, setVeriAnahtari] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | CovStatus>("all");
+  const [filter, setFilter] = useState<"all" | CovStatus | "bayat">("all");
 
   // Mağaza listesi (store-level perakendeciler için)
   useEffect(() => {
+    let iptal = false;
     setStore("");
-    fetch(`/api/stores?retailer=${encodeURIComponent(retailer)}`)
+    izle(fetch(`/api/stores?retailer=${encodeURIComponent(retailer)}`))
       .then((r) => r.json()).then((d) => {
+        if (iptal) return;
         setStores(d?.storeLevel && Array.isArray(d?.stores) ? d.stores.map((s: any) => s.store) : []);
-      }).catch(() => setStores([]));
+      }).catch(() => { if (!iptal) setStores([]); });
+    return () => { iptal = true; };
   }, [retailer]);
 
   // Coverage verisi (firma geneli veya mağaza özelinde)
+  const anahtar = `${retailer}|${store}`;
   useEffect(() => {
+    // Firma değişince mağaza da sıfırlandığı için iki istek çıkıyor; geç dönen
+    // eskisi yenisini ezmesin.
+    let iptal = false;
+    const k = `${retailer}|${store}`;
     setLoading(true);
     const url = `/api/stock?retailer=${encodeURIComponent(retailer)}${store ? `&store=${encodeURIComponent(store)}` : ""}`;
     fetchJson(url)
-      .then((d) => { setData(d); setErr(null); })
-      .catch((e) => { setErr(e.message); setData(null); })
-      .finally(() => setLoading(false));
+      .then((d) => { if (iptal) return; setData(d); setVeriAnahtari(k); setErr(null); })
+      .catch((e) => { if (iptal) return; setErr(e.message); setData(null); setVeriAnahtari(null); })
+      .finally(() => { if (!iptal) setLoading(false); });
+    return () => { iptal = true; };
   }, [retailer, store]);
+  const bekliyor = data != null && veriAnahtari !== anahtar;
 
   const skus: Sku[] = data?.skus ?? [];
-  const shown = filter === "all" ? skus : skus.filter((s) => s.status === filter);
+  const velWeeks: number = data?.velocity_weeks ?? VELOCITY_WEEKS;
+  const winWeeks: number = data?.window_weeks ?? 12;
+  const shown =
+    filter === "all" ? skus
+      : filter === "bayat" ? skus.filter((s) => s.stale)
+        : skus.filter((s) => s.status === filter && !s.stale);
 
-  function exportCsv() {
-    downloadCsv(
-      `cortex-stok-suresi-${retailer}${store ? "-" + store : ""}`,
+  const csvRows = useMemo(
+    () =>
       shown.map((s) => ({
-        sku: s.sku_name, ort_haftalik_satis: Math.round(s.avg_weekly * 10) / 10,
-        stok: s.last_stock, coverage_hafta: s.coverage == null ? "" : Math.round(s.coverage * 10) / 10,
-        durum: COV_META[s.status].label,
+        sku: s.sku_name, haftalik_hiz: fmt1(s.avg_weekly),
+        stok: s.last_stock, coverage_hafta: s.coverage == null ? "" : fmt1(s.coverage),
+        durum: s.stale ? "BAYAT (listeden düştü)" : COV_META[s.status].label,
+        son_gorulme: s.stale ? (s.last_seen ?? `${winWeeks}+ hf önce`) : "",
       })),
-      [
-        { key: "sku", label: "Ürün" }, { key: "ort_haftalik_satis", label: "Haftalık Ort. Satış" },
-        { key: "stok", label: "Stok" }, { key: "coverage_hafta", label: "Coverage (hafta)" },
-        { key: "durum", label: "Durum" },
-      ]
-    );
-  }
+    [shown, winWeeks]
+  );
 
   return (
     <div className="space-y-5">
@@ -478,36 +616,58 @@ function CoverageView() {
             <span className="mono text-[11px] text-txt-dim">mağaza kırılımı yok (firma geneli)</span>
           )}
         </div>
-        <button onClick={exportCsv} disabled={shown.length === 0}
-          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed">
-          ⬇ CSV
-        </button>
+        <CsvBtn
+          filename={`cortex-stok-suresi-${retailer}${store ? "-" + store : ""}`}
+          rows={csvRows}
+          cols={[
+            { key: "sku", label: "Ürün" }, { key: "haftalik_hiz", label: `Haftalık Hız (son ${velWeeks} hf)` },
+            { key: "stok", label: "Stok" }, { key: "coverage_hafta", label: "Coverage (hafta)" },
+            { key: "durum", label: "Durum" }, { key: "son_gorulme", label: "Son Görülme" },
+          ]}
+        />
       </div>
 
+      {/* VERI YASI BANDI. Uc `veri: { takvimHaftasi, dataWeek, gecikmeHf }` zaten
+          gonderiyordu, ekran hic okumuyordu: Nezih secildiginde 5 hafta eski stok
+          fotografi tarihsiz ve uyarisiz kapsam hesabina giriyordu. */}
+      {data?.veri?.dataWeek && (
+        <p className="mono text-xs" style={data.veri.gecikmeHf >= GECIKME_ROZET ? { color: "#f8b00b" } : undefined}>
+          Stok verisi {fmtHafta(data.veri.dataWeek, data.veri.takvimHaftasi)} haftasından
+          {data.veri.gecikmeHf > 0 ? ` · ${data.veri.gecikmeHf} hf geride` : ""}
+          {" · "}karar haftası {fmtDate(data.veri.takvimHaftasi)}
+        </p>
+      )}
+
       <p className="text-txt-dim mono text-xs">
-        Stok ÷ ortalama haftalık satış · &lt;8 hafta sipariş, &gt;30 hafta kampanya
+        Stok ÷ son {velWeeks} haftalık satış hızı · &lt;{COVERAGE_LOW} hafta sipariş, &gt;{COVERAGE_HIGH} hafta kampanya
         {store ? ` · mağaza: ${store}` : " · firma geneli"}
+        {data?.summary?.bayat ? ` · ${data.summary.bayat} bayat kalem sayımlardan çıkarıldı` : ""}
       </p>
 
       {err && <div className="card p-4 border-red-500/40 text-red-400 mono text-sm">Veri alınamadı: {err}</div>}
 
       {/* Özet kartları (tıkla → filtrele) — yeni kapsam yüklenirken eski sayılar soluk */}
-      <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-50" : "opacity-100"}`}>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 cx-soluk" {...bekleme(bekliyor)}>
         <SummaryCard label="TÜM SKU" value={data?.summary?.toplam ?? 0} active={filter === "all"} onClick={() => setFilter("all")} color="#7d927d" />
         <SummaryCard label="AZ STOK · SİPARİŞ" value={data?.summary?.kritik ?? 0} active={filter === "kritik"} onClick={() => setFilter("kritik")} color="#ff5555" />
         <SummaryCard label="SAĞLIKLI" value={data?.summary?.saglikli ?? 0} active={filter === "saglikli"} onClick={() => setFilter("saglikli")} color="#1FF80B" />
         <SummaryCard label="FAZLA · KAMPANYA" value={data?.summary?.fazla ?? 0} active={filter === "fazla"} onClick={() => setFilter("fazla")} color="#f8b00b" />
+        <SummaryCard
+          label={`BAYAT · ${fmtInt(data?.summary?.bayat_stok ?? 0)} ADET`}
+          value={data?.summary?.bayat ?? 0} active={filter === "bayat"} onClick={() => setFilter("bayat")} color="#7d927d" />
       </div>
 
-      <div className="card p-6 overflow-x-auto">
+      <div className="card p-6 cx-soluk" {...bekleme(bekliyor)}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold">{filter === "all" ? "Tüm SKU" : COV_META[filter].label}</h2>
+          <h2 className="font-bold">
+            {filter === "all" ? "Tüm SKU" : filter === "bayat" ? "Bayat · güncel raporda yok" : COV_META[filter].label}
+          </h2>
           <span className="mono text-xs text-txt-dim">
             {filter === "all" ? `${fmtInt(shown.length)}` : `${fmtInt(shown.length)} / ${fmtInt(skus.length)}`} SKU
           </span>
         </div>
         {loading && !data ? (
-          <div className="text-center mono text-txt-dim animate-pulse py-6">Yükleniyor…</div>
+          <div className="text-center mono text-txt-dim py-6">Yükleniyor…</div>
         ) : shown.length === 0 ? (
           <div className="text-center mono text-sm text-txt-dim py-6">
             {skus.length === 0 ? "Bu seçim için veri yok." : (
@@ -515,30 +675,35 @@ function CoverageView() {
             )}
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Ürün</th><th>Haftalık Ort. Satış</th><th>Stok</th><th>Coverage</th><th>Durum</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.slice(0, 500).map((s, i) => {
-                const m = COV_META[s.status];
-                return (
-                  <motion.tr key={s.sku_name + i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.01, 0.3) }}>
-                    <td className="max-w-md truncate" title={s.sku_name}>{s.sku_name}</td>
-                    <td className="mono">{fmtAvg(s.avg_weekly)}</td>
-                    <td className="mono">{fmtInt(s.last_stock)}</td>
-                    <td className="mono font-bold" style={{ color: m.color }}>{fmtCov(s.coverage)}</td>
-                    <td>
-                      <span className="mono text-xs px-2 py-0.5 rounded whitespace-nowrap"
-                        style={{ color: m.color, border: `1px solid ${m.color}40` }}>{m.label}</span>
-                    </td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ürün</th><th>Hız (son {velWeeks} hf)</th><th>Stok</th><th>Coverage</th><th>Durum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.slice(0, 500).map((s, i) => {
+                  const m = COV_META[s.status];
+                  return (
+                    <tr key={s.sku_name + i}
+                      className={s.stale ? "opacity-60" : undefined}>
+                      <td className="max-w-md truncate" title={s.sku_name}>{s.sku_name}</td>
+                      <td className="mono">{fmt1(s.avg_weekly)}</td>
+                      <td className="mono">{fmtInt(s.last_stock)}</td>
+                      <td className="mono font-bold" style={{ color: s.stale ? "#7d927d" : m.color }}>{fmtCov(s.coverage)}</td>
+                      <td>
+                        {s.stale ? <StaleBadge lastSeen={s.last_seen} windowWeeks={winWeeks} /> : (
+                          <span className="mono text-xs px-2 py-0.5 rounded whitespace-nowrap"
+                            style={{ color: m.color, border: `1px solid ${m.color}40` }}>{m.label}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
         {shown.length > 500 && (
           <div className="mono text-[11px] text-txt-dim mt-3">İlk 500 gösteriliyor ({shown.length} toplam). Tümü için CSV indir.</div>
@@ -548,12 +713,14 @@ function CoverageView() {
   );
 }
 
+// Tıklanabilir KPI kartı — StatCard salt-görüntü olduğu için (onClick/aktif kenar
+// yok) filtre kartlarında bu yerel sürüm korunur.
 function SummaryCard({ label, value, active, onClick, color }: {
   label: string; value: number; active: boolean; onClick: () => void; color: string;
 }) {
   return (
     <button onClick={onClick}
-      className={`card p-4 text-left transition-colors ${active ? "border-neon" : "hover:border-line"}`}
+      className={`card p-4 text-left ${active ? "border-neon" : "hover:border-line"}`}
       style={active ? { borderColor: color } : undefined}>
       <div className="mono text-[10px] text-txt-dim tracking-wider">{label}</div>
       <div className="text-2xl font-bold mono mt-1" style={{ color }}>{value.toLocaleString("tr-TR")}</div>
@@ -564,171 +731,150 @@ function SummaryCard({ label, value, active, onClick, color }: {
 // ═══════════════════════ ÖLÜ STOK GÖRÜNÜMÜ ═══════════════════════
 // Ağ geneli ürün satırı tıklanınca firma kırılımı açılır. Kaynak: parametresiz
 // /api/stock yanıtındaki products (groupDeadStock).
-interface DSFirm { retailer: string; sku_name: string; stock: number; velocity: number; coverage: number | null; }
+interface DSFirm {
+  retailer: string; sku_name?: string; stock: number; velocity: number;
+  coverage: number | null; stale?: boolean;
+}
 interface DSProduct {
   product_key: string; barkod: string | null; name: string;
   total_stock: number; total_velocity: number; coverage: number | null;
-  never_sold: boolean; max_firm_coverage: number | null; firms: DSFirm[];
+  never_sold: boolean; stale?: boolean; stale_stock?: number; firms: DSFirm[];
 }
-type SortKey = "name" | "barkod" | "stock" | "velocity" | "coverage" | "firms";
 
 const fmtDeadCov = (c: number | null, neverSold: boolean) =>
   neverSold ? "∞ satmıyor" : c == null ? "—" : c.toFixed(0) + " hf";
-const fmtVel = (n: number) => (Math.round(n * 10) / 10).toLocaleString("tr-TR");
+// Renk eşikleri compute.ts sabitlerinden — daha önce 120/60 sihirli sayı olarak gömülüydü.
 const covColor = (c: number | null, neverSold: boolean) =>
-  neverSold ? "#ff5555" : c == null ? "#7d927d" : c > 120 ? "#ff5555" : c > 60 ? "#f8b00b" : "#1FF80B";
+  neverSold ? "#ff5555" : c == null ? "#7d927d"
+    : c > DEAD_STOCK_HIGH_WEEKS ? "#ff5555" : c > DEAD_STOCK_MIN_WEEKS ? "#f8b00b" : "#1FF80B";
 
-function SortTh({ label, active, dir, align, onClick }: {
-  label: string; active: boolean; dir: "asc" | "desc"; align?: string; onClick: () => void;
+// ∞ (hiç satmayan) için sıralama sentineli: Infinity kullanılamaz — paylaşılan
+// useSort'un karşılaştırıcısı a-b döndürüyor ve Infinity-Infinity = NaN sıralamayı
+// bozar. MAX_SAFE_INTEGER ile iki ∞ eşit sayılır, giriş sırası (stok azalan) korunur.
+const COV_SENTINEL = Number.MAX_SAFE_INTEGER;
+
+function DeadStockView({ products, loading, velWeeks, winWeeks }: {
+  products: DSProduct[]; loading: boolean; velWeeks: number; winWeeks: number;
 }) {
-  return (
-    <th className={`cursor-pointer select-none hover:text-neon transition-colors ${align ?? ""}`} onClick={onClick}>
-      {label}
-      <span className={`ml-1 ${active ? "text-neon" : "opacity-30"}`}>{active ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
-    </th>
-  );
-}
-
-function DeadStockView({ products, loading }: { products: DSProduct[]; loading: boolean }) {
   const [q, setQ] = useState("");
   const [retailer, setRetailer] = useState(""); // "" = ağ geneli (tüm firmalar birleşik)
-  const [minWeeks, setMinWeeks] = useState(60);
+  const [minWeeks, setMinWeeks] = useState(DEAD_STOCK_MIN_WEEKS);
   const [includeNeverSold, setIncludeNeverSold] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("coverage");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   // Seçili firmaya / ağa göre her ürün için gösterilecek değerler + filtre.
-  const shown = useMemo(() => {
+  // Satır DÜZLEŞTİRİLİR (name/barkod/cov_sort üstte) → paylaşılan useSort doğrudan
+  // çalışır; eskiden buradaki yerel SortTh + switch/case ile ikinci bir sıralama
+  // sistemi vardı.
+  const rows = useMemo(() => {
     const term = q.trim().toLocaleLowerCase("tr-TR");
-    const rows = products.map((p) => {
-      let stock: number, velocity: number, coverage: number | null, neverSold: boolean, firmName: string;
+    const mapped = products.map((p) => {
+      let stock: number, velocity: number, coverage: number | null, neverSold: boolean, firmName: string, stale: boolean;
       if (retailer) {
         const f = p.firms.find((x) => x.retailer === retailer);
         if (!f) return null;
         stock = f.stock; velocity = f.velocity; coverage = f.coverage;
-        neverSold = f.coverage == null && f.stock > 0; firmName = f.sku_name;
+        neverSold = f.coverage == null && f.stock > 0;
+        firmName = f.sku_name ?? p.name; // firma adı ürün adıyla aynıysa yanıtta tekrar edilmiyor
+        stale = !!f.stale;
       } else {
         stock = p.total_stock; velocity = p.total_velocity; coverage = p.coverage;
-        neverSold = p.never_sold; firmName = p.name;
+        neverSold = p.never_sold; firmName = p.name; stale = !!p.stale;
       }
-      return { p, stock, velocity, coverage, neverSold, firmName };
-    }).filter(Boolean) as { p: DSProduct; stock: number; velocity: number; coverage: number | null; neverSold: boolean; firmName: string }[];
+      return {
+        p, stock, velocity, coverage, neverSold, firmName, stale,
+        name: p.name, barkod: p.barkod ?? "", firms_count: p.firms.length,
+        cov_sort: neverSold ? COV_SENTINEL : coverage ?? -1,
+      };
+    }).filter(Boolean) as {
+      p: DSProduct; stock: number; velocity: number; coverage: number | null; neverSold: boolean;
+      firmName: string; stale: boolean; name: string; barkod: string; firms_count: number; cov_sort: number;
+    }[];
 
-    return rows.filter((r) => {
-      if (r.stock <= 0) return false;
-      const passCov = r.neverSold ? includeNeverSold : (r.coverage != null && r.coverage >= minWeeks);
-      if (!passCov) return false;
-      if (term) {
-        const hay = (r.p.name + " " + r.firmName + " " + (r.p.barkod ?? "")).toLocaleLowerCase("tr-TR");
-        if (!hay.includes(term)) return false;
-      }
-      return true;
-    }).sort((a, b) => {
-      const dir = sortDir === "asc" ? 1 : -1;
-      const cov = (x: typeof a) => (x.neverSold ? Infinity : x.coverage ?? -1);
-      switch (sortKey) {
-        case "name": return dir * a.p.name.localeCompare(b.p.name, "tr");
-        case "barkod": return dir * (a.p.barkod ?? "").localeCompare(b.p.barkod ?? "");
-        case "stock": return dir * (a.stock - b.stock);
-        case "velocity": return dir * (a.velocity - b.velocity);
-        case "firms": return dir * (a.p.firms.length - b.p.firms.length);
-        case "coverage":
-        default: {
-          const av = cov(a), bv = cov(b);
-          if (av === Infinity && bv === Infinity) return b.stock - a.stock; // ∞'lar stoğa göre
-          if (av === Infinity) return dir;   // ∞ en büyük coverage
-          if (bv === Infinity) return -dir;
-          return dir * (av - bv);
+    return mapped
+      .filter((r) => {
+        if (r.stock <= 0) return false;
+        const passCov = r.neverSold ? includeNeverSold : (r.coverage != null && r.coverage >= minWeeks);
+        if (!passCov) return false;
+        if (term) {
+          const hay = (r.p.name + " " + r.firmName + " " + (r.p.barkod ?? "")).toLocaleLowerCase("tr-TR");
+          if (!hay.includes(term)) return false;
         }
-      }
-    });
-  }, [products, q, retailer, minWeeks, includeNeverSold, sortKey, sortDir]);
+        return true;
+      })
+      // Ön sıralama: eşitlikte (iki ∞) stok azalan kalsın — Array.sort kararlı.
+      .sort((a, b) => b.stock - a.stock);
+  }, [products, q, retailer, minWeeks, includeNeverSold]);
+
+  const { sorted: shown, sortKey, dir, toggle } = useSort(rows, "cov_sort", "desc");
 
   const totalUnits = shown.reduce((a, r) => a + r.stock, 0);
+  const staleUnits = shown.reduce((a, r) => a + (r.stale ? r.stock : 0), 0);
   // Seçili kapsamda (firma/ağ) stoklu ürün sayısı — "X / Y" sayacının paydası.
   const scopeCount = useMemo(() => {
     if (!retailer) return products.filter((p) => p.total_stock > 0).length;
     return products.filter((p) => (p.firms.find((f) => f.retailer === retailer)?.stock ?? 0) > 0).length;
   }, [products, retailer]);
 
-  function exportCsv() {
-    downloadCsv(
-      `cortex-olu-stok${retailer ? "-" + retailer : ""}`,
+  const csvRows = useMemo(
+    () =>
       shown.map((r) => ({
         urun: r.p.name, barkod: r.p.barkod ?? "", kapsam: retailer || "ağ geneli",
-        stok: Math.round(r.stock), hiz: Math.round(r.velocity * 10) / 10,
-        coverage_hf: r.neverSold ? "∞" : r.coverage == null ? "" : Math.round(r.coverage),
+        stok: Math.round(r.stock), hiz: fmt1(r.velocity),
+        coverage_hf: r.neverSold ? "∞" : r.coverage == null ? "" : String(Math.round(r.coverage)),
         firma_sayisi: r.p.firms.length,
+        bayat: r.stale ? "BAYAT" : "",
       })),
-      [
-        { key: "urun", label: "Ürün" }, { key: "barkod", label: "Barkod" }, { key: "kapsam", label: "Kapsam" },
-        { key: "stok", label: "Stok" }, { key: "hiz", label: "Haftalık Hız" },
-        { key: "coverage_hf", label: "Coverage (hf)" }, { key: "firma_sayisi", label: "Firma Sayısı" },
-      ]
-    );
-  }
-
-  function setSort(k: SortKey) {
-    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(k); setSortDir(k === "name" || k === "barkod" ? "asc" : "desc"); }
-  }
+    [shown, retailer]
+  );
 
   return (
     <div className="space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <p className="text-txt-dim mono text-sm">
-          Stok ÷ haftalık satış hızı &gt; {minWeeks} hafta · {retailer || "tüm firmalar birleşik"} · hiç satmayan = ∞ · ürün satırına tıkla → firma kırılımı
+          Stok ÷ son {velWeeks} haftalık hız &gt; {minWeeks} hafta · {retailer || "tüm firmalar birleşik"} · hiç satmayan = ∞ · ürün satırına tıkla → firma kırılımı
         </p>
-        <button onClick={exportCsv} disabled={shown.length === 0}
-          className="mono text-xs px-4 py-2 rounded-lg border border-line text-txt-dim hover:border-neon hover:text-neon transition-colors disabled:opacity-40 disabled:hover:border-line disabled:hover:text-txt-dim disabled:cursor-not-allowed">
-          ⬇ CSV
-        </button>
+        <CsvBtn
+          filename={`cortex-olu-stok${retailer ? "-" + retailer : ""}`}
+          rows={csvRows}
+          cols={[
+            { key: "urun", label: "Ürün" }, { key: "barkod", label: "Barkod" }, { key: "kapsam", label: "Kapsam" },
+            { key: "stok", label: "Stok" }, { key: "hiz", label: `Haftalık Hız (son ${velWeeks} hf)` },
+            { key: "coverage_hf", label: "Coverage (hf)" }, { key: "firma_sayisi", label: "Firma Sayısı" },
+            { key: "bayat", label: "Bayat" },
+          ]}
+        />
       </div>
 
       {/* Özet */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="card p-5">
-          <div className="mono text-[10px] text-txt-dim tracking-wider">ÖLÜ STOK ÜRÜNÜ</div>
-          <div className="text-3xl font-bold mono mt-1 neon-text">
-            {fmtInt(shown.length)}
-            <span className="text-sm text-txt-dim"> / {fmtInt(scopeCount)}</span>
-          </div>
-        </div>
-        <div className="card p-5">
-          <div className="mono text-[10px] text-txt-dim tracking-wider">TAKILI STOK</div>
-          <div className="text-3xl font-bold mono mt-1" style={{ color: "#ff5555" }}>{fmtInt(totalUnits)} <span className="text-sm text-txt-dim">adet</span></div>
-        </div>
-        <div className="card p-5">
-          <div className="mono text-[10px] text-txt-dim tracking-wider">EŞİK</div>
-          <div className="text-xl font-bold mono mt-1">&gt; {minWeeks} hafta {includeNeverSold && <span className="text-txt-dim text-xs">+ hiç satmayan</span>}</div>
-        </div>
+        <StatCard label="ÖLÜ STOK ÜRÜNÜ" value={<>{fmtInt(shown.length)}<span className="text-sm text-txt-dim"> / {fmtInt(scopeCount)}</span></>} />
+        <StatCard label="TAKILI STOK" value={<>{fmtInt(totalUnits)} <span className="text-sm text-txt-dim">adet</span></>} color="#ff5555"
+          sub={staleUnits > 0 ? `${fmtInt(staleUnits)} adedi bayat (güncel raporda yok)` : undefined} />
+        <StatCard label="EŞİK" value={<>&gt; {minWeeks} hafta</>} color="#e7ffe7"
+          sub={includeNeverSold ? "+ hiç satmayan" : undefined} />
       </div>
 
       {/* Filtreler */}
       <div className="card p-4 flex flex-wrap items-center gap-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ürün adı / barkod ara…"
-          className="mono text-sm px-3 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon flex-1 min-w-[200px]" />
+        <div className="flex-1 min-w-[200px]">
+          <SearchBox value={q} onChange={setQ} placeholder="Ürün adı / barkod ara…" />
+        </div>
         <select value={retailer} onChange={(e) => setRetailer(e.target.value)}
           className="mono text-sm px-3 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon">
           <option value="" className="bg-ink-2">Tüm firmalar (ağ)</option>
           {RETAILERS.map((r) => <option key={r} value={r} className="bg-ink-2">{r}</option>)}
         </select>
-        <label className="mono text-xs text-txt-dim flex items-center gap-2">
-          min hafta
-          <input type="number" min={0} step={10} value={minWeeks}
-            onChange={(e) => setMinWeeks(Math.max(0, Number(e.target.value) || 0))}
-            className="w-20 mono text-sm px-2 py-2 rounded-lg bg-ink-2 border border-line outline-none focus:border-neon" />
-        </label>
+        <RangeMin label="min hafta" value={minWeeks} onChange={setMinWeeks} step={10} />
         <label className="mono text-xs text-txt-dim flex items-center gap-2 cursor-pointer select-none">
           <input type="checkbox" checked={includeNeverSold} onChange={(e) => setIncludeNeverSold(e.target.checked)} className="accent-neon" />
           hiç satmayanları dahil et
         </label>
       </div>
 
-      <div className="card p-6 overflow-x-auto">
+      <div className="card p-6">
         {loading ? (
-          <div className="text-center mono text-txt-dim animate-pulse py-6">Yükleniyor…</div>
+          <div className="text-center mono text-txt-dim py-6">Yükleniyor…</div>
         ) : shown.length === 0 ? (
           <div className="text-center mono text-sm text-txt-dim py-6">
             {scopeCount > 0 ? (
@@ -738,68 +884,75 @@ function DeadStockView({ products, loading }: { products: DSProduct[]; loading: 
             )}
           </div>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <SortTh label="Ürün" active={sortKey === "name"} dir={sortDir} onClick={() => setSort("name")} />
-                <SortTh label="Barkod" active={sortKey === "barkod"} dir={sortDir} onClick={() => setSort("barkod")} />
-                <SortTh label="Stok" align="text-right" active={sortKey === "stock"} dir={sortDir} onClick={() => setSort("stock")} />
-                <SortTh label="Haftalık hız" align="text-right" active={sortKey === "velocity"} dir={sortDir} onClick={() => setSort("velocity")} />
-                <SortTh label="Coverage" align="text-right" active={sortKey === "coverage"} dir={sortDir} onClick={() => setSort("coverage")} />
-                <SortTh label="Firma" align="text-center" active={sortKey === "firms"} dir={sortDir} onClick={() => setSort("firms")} />
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.slice(0, 600).map((r, i) => {
-                const isOpen = open === r.p.product_key;
-                const cc = covColor(r.coverage, r.neverSold);
-                return (
-                  <Fragment key={r.p.product_key}>
-                    <motion.tr initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.008, 0.25) }}
-                      className="cursor-pointer" onClick={() => setOpen(isOpen ? null : r.p.product_key)}>
-                      <td className="max-w-sm truncate" title={r.p.name}>{r.p.name}</td>
-                      <td className="mono text-[11px] text-txt-dim">{r.p.barkod ?? "—"}</td>
-                      <td className="text-right mono font-bold">{fmtInt(r.stock)}</td>
-                      <td className="text-right mono">{fmtVel(r.velocity)}</td>
-                      <td className="text-right mono font-bold" style={{ color: cc }}>{fmtDeadCov(r.coverage, r.neverSold)}</td>
-                      <td className="text-center">
-                        <div className="flex justify-center gap-1">
-                          {r.p.firms.map((f) => <span key={f.retailer} className="inline-block w-2 h-2 rounded-full" title={f.retailer} style={{ background: col(f.retailer) }} />)}
-                        </div>
-                      </td>
-                      <td className="text-right mono text-txt-dim">{isOpen ? "▾" : "▸"}</td>
-                    </motion.tr>
-                    {isOpen && (
-                      <tr key={r.p.product_key + "-d"}>
-                        <td colSpan={7} className="!p-0">
-                          <div className="bg-ink-2/50 px-4 py-3">
-                            <div className="mono text-[11px] text-txt-dim mb-2">{r.p.firms.length} firmada · firma içi stok / hız / coverage</div>
-                            <div className="space-y-1">
-                              {r.p.firms.map((f) => {
-                                const fns = f.coverage == null && f.stock > 0;
-                                return (
-                                  <div key={f.retailer} className="flex items-center gap-3 text-[12px] mono py-1 border-b border-line/40">
-                                    <span className="w-24 shrink-0 font-semibold flex items-center gap-2" style={{ color: col(f.retailer) }}>
-                                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: col(f.retailer) }} />{f.retailer}
-                                    </span>
-                                    <span className="flex-1 truncate text-txt-dim" title={f.sku_name}>{f.sku_name}</span>
-                                    <span className="w-24 shrink-0 text-right">{fmtInt(f.stock)} adet</span>
-                                    <span className="w-24 shrink-0 text-right text-txt-dim">{fmtVel(f.velocity)}/hf</span>
-                                    <span className="w-20 shrink-0 text-right font-bold" style={{ color: covColor(f.coverage, fns) }}>{fmtDeadCov(f.coverage, fns)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
+          <div className="overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <SortableTh label="Ürün" sortKey="name" active={sortKey === "name"} dir={dir} onClick={toggle} />
+                  <SortableTh label="Barkod" sortKey="barkod" active={sortKey === "barkod"} dir={dir} onClick={toggle} />
+                  <SortableTh label="Stok" sortKey="stock" align="right" active={sortKey === "stock"} dir={dir} onClick={toggle} />
+                  <SortableTh label={`Hız (son ${velWeeks} hf)`} sortKey="velocity" align="right" active={sortKey === "velocity"} dir={dir} onClick={toggle} />
+                  <SortableTh label="Coverage" sortKey="cov_sort" align="right" active={sortKey === "cov_sort"} dir={dir} onClick={toggle} />
+                  <SortableTh label="Firma" sortKey="firms_count" align="center" active={sortKey === "firms_count"} dir={dir} onClick={toggle} />
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.slice(0, 600).map((r, i) => {
+                  const isOpen = open === r.p.product_key;
+                  const cc = covColor(r.coverage, r.neverSold);
+                  return (
+                    <Fragment key={r.p.product_key}>
+                      <tr
+                        className="cursor-pointer" onClick={() => setOpen(isOpen ? null : r.p.product_key)}>
+                        <td className="max-w-sm truncate" title={r.p.name}>
+                          {r.p.name}
+                          {r.stale && <span className="ml-2 align-middle"><StaleBadge lastSeen={null} windowWeeks={winWeeks} /></span>}
+                        </td>
+                        <td className="mono text-[11px] text-txt-dim">{r.p.barkod ?? "—"}</td>
+                        <td className="text-right mono font-bold">{fmtInt(r.stock)}</td>
+                        <td className="text-right mono">{fmt1(r.velocity)}</td>
+                        <td className="text-right mono font-bold" style={{ color: cc }}>{fmtDeadCov(r.coverage, r.neverSold)}</td>
+                        <td className="text-center">
+                          <div className="flex justify-center gap-1">
+                            {r.p.firms.map((f) => <span key={f.retailer} className="inline-block w-2 h-2 rounded-full" title={f.retailer} style={{ background: col(f.retailer) }} />)}
                           </div>
                         </td>
+                        <td className="text-right mono text-txt-dim">{isOpen ? "▾" : "▸"}</td>
                       </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                      {isOpen && (
+                        <tr key={r.p.product_key + "-d"}>
+                          <td colSpan={7} className="!p-0">
+                            <div className="bg-ink-2/50 px-4 py-3">
+                              <div className="mono text-[11px] text-txt-dim mb-2">{r.p.firms.length} firmada · firma içi stok / hız / coverage</div>
+                              <div className="space-y-1">
+                                {r.p.firms.map((f) => {
+                                  const fns = f.coverage == null && f.stock > 0;
+                                  return (
+                                    <div key={f.retailer} className={`flex items-center gap-3 text-[12px] mono py-1 border-b border-line/40 ${f.stale ? "opacity-60" : ""}`}>
+                                      <span className="w-24 shrink-0 font-semibold flex items-center gap-2" style={{ color: col(f.retailer) }}>
+                                        <span className="inline-block w-2 h-2 rounded-full" style={{ background: col(f.retailer) }} />{f.retailer}
+                                      </span>
+                                      <span className="flex-1 truncate text-txt-dim" title={f.sku_name ?? r.p.name}>
+                                        {f.sku_name ?? r.p.name}{f.stale ? " · ⚠ bayat" : ""}
+                                      </span>
+                                      <span className="w-24 shrink-0 text-right">{fmtInt(f.stock)} adet</span>
+                                      <span className="w-24 shrink-0 text-right text-txt-dim">{fmt1(f.velocity)}/hf</span>
+                                      <span className="w-20 shrink-0 text-right font-bold" style={{ color: covColor(f.coverage, fns) }}>{fmtDeadCov(f.coverage, fns)}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
         {shown.length > 600 && <div className="mono text-[11px] text-txt-dim mt-3">İlk 600 gösteriliyor ({shown.length} toplam). Tümü için CSV indir.</div>}
       </div>

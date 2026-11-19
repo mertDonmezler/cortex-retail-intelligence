@@ -24,7 +24,6 @@ for (const line of fs.readFileSync(path.join(__dirname, "..", ".env.local"), "ut
 }
 const URL = env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY;
-const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const argv = process.argv.slice(2);
 const DRY = argv.includes("--dry");
@@ -32,7 +31,9 @@ const masterArg = (() => {
   const i = argv.indexOf("--master");
   return i >= 0 ? argv[i + 1] : undefined;
 })();
-const MASTER_PATHS = [masterArg, "C:/Users/dell/Desktop/SKU-EAN.xlsx", path.join(__dirname, "..", "data", "SKU-EAN.xlsx")].filter(Boolean) as string[];
+// Kullanıcıya özel sabit yol YOK: master dosya `--master <yol>` ile ya da repo içi
+// data/SKU-EAN.xlsx konumundan alınır.
+const MASTER_PATHS = [masterArg, path.join(__dirname, "..", "data", "SKU-EAN.xlsx")].filter(Boolean) as string[];
 
 // ── normalizasyon ──
 const TEAM_MAP: [RegExp, string][] = [
@@ -84,7 +85,14 @@ function cleanBarcode(b: any): string | null {
   return d;
 }
 
+// SAYFALAMA KARARLI SIRA ISTER (bkz. src/lib/supabase.ts fetchAllRows).
+// Sorguda `order` yoksa Postgres sayfalar arasinda ayni siralamayi garanti
+// etmez: bazi satirlar IKI KEZ gelir, bazilari HIC gelmez ve hata SESSIZDIR.
+// sku_weekly 17.225 satir = 18 sayfa; dusen bir Toyzz urunu benzersiz ad
+// listesine hic girmedigi icin "aday yok" sayacina bile yansimiyordu.
+// `order` verilmemisse birincil anahtar eklenir.
 async function rest(q: string, key = SERVICE): Promise<any[]> {
+  if (!/[?&]order=/.test(q)) q += (q.includes("?") ? "&" : "?") + "order=id.asc";
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
     const res = await fetch(`${URL}/rest/v1/${q}`, {

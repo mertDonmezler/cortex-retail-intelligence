@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -13,6 +14,8 @@ export async function GET(req: NextRequest) {
   if (!retailer || !week) {
     return NextResponse.json({ error: "retailer ve week gerekli" }, { status: 400 });
   }
+  if (!isRetailer(retailer)) return badRequest("Bilinmeyen perakendeci");
+  if (!isWeek(week)) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
   try {
     // sku_weekly: mağaza boyutu çökertilmiş SKU-hafta matview'i. Eski mağaza-bazlı
     // haftalarda fact_weekly on binlerce satır döndürürken bu birkaç yüz satır.

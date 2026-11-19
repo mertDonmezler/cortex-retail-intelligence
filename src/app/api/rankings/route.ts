@@ -4,6 +4,9 @@ import { globalRankings, categoryBreakdown, productKey, type FactRow } from "@/l
 import { getApprovedAliases } from "@/lib/aliases";
 import { netFactor } from "@/lib/margins";
 import { toNetFacts, SKU_COLS } from "@/lib/rows";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
+import { RETAILERS } from "@/lib/normalizers/types";
+import { sonTamamlanmisHafta, gecikmeHaftasi } from "@/lib/compute";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -11,12 +14,20 @@ export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const sp = new URL(req.url).searchParams;
-  const week = sp.get("week") || undefined;
+  const week = optionalWeek(sp.get("week"));
+  if (week === null) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
   const metric = sp.get("metric") === "qty" ? "qty" : "value"; // büyüme bazı — varsayılan ciro
   try {
     // Hafta seçici için tüm haftalar (yeni → eski)
-    const { data: wkRows } = await supabase.from("weekly_summary").select("week_start");
+    const { data: wkRows } = await supabase.from("weekly_summary").select("week_start, retailer");
     const allWeeks = [...new Set((wkRows ?? []).map((w) => w.week_start))].sort().reverse();
+    // Firma → en son raporladığı hafta. Eksik firmanın kaç hafta geride olduğunu
+    // söyleyebilmek için gerekli; "yok" demekle "eski" demek aynı şey değil.
+    const sonHafta = new Map<string, string>();
+    for (const w of wkRows ?? []) {
+      const c = sonHafta.get(w.retailer);
+      if (!c || w.week_start > c) sonHafta.set(w.retailer, w.week_start);
+    }
 
     // Gösterilecek hafta = seçili hafta; yoksa en güncel hafta.
     const focus = week || allWeeks[0] || null;
@@ -52,13 +63,24 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    // KAPSAM KÜNYESİ. Bu sıralama TEK BİR HAFTANIN kesitidir ve o hafta herkes
+    // rapor göndermemiş olabilir. Raporlamayan firma tabloda hiç görünmediği için
+    // ekran "bu firmanın satan ürünü yok" gibi okunuyordu; oysa doğrusu "bu
+    // firmanın o haftası elimizde yok". İkisi farklı ve karar değiştiriyor.
+    const varOlan = [...new Set(latestRows.map((r) => r.retailer))];
+    const takvimHaftasi = sonTamamlanmisHafta(new Date());
+    const eksik = RETAILERS
+      .filter((r) => !varOlan.includes(r))
+      .map((r) => ({ retailer: r, gecikmeHf: gecikmeHaftasi(sonHafta.get(r) ?? null, focus ?? takvimHaftasi), sonVeri: sonHafta.get(r) ?? null }));
+    const kapsam = { firmalar: varOlan.sort(), eksik, toplam: RETAILERS.length };
+
     const rankings = globalRankings(latestRows, prevByKey, metric, aliases);
     const categories = {
       brand: categoryBreakdown(latestRows, "brand"),
       team: categoryBreakdown(latestRows, "team"),
       type: categoryBreakdown(latestRows, "type"),
     };
-    return NextResponse.json({ ...rankings, categories, weeks: allWeeks, week: focus, metric });
+    return NextResponse.json({ ...rankings, categories, weeks: allWeeks, week: focus, metric, kapsam });
   } catch (e: any) {
     console.error("rankings hatası:", e);
     return NextResponse.json({ error: "Sunucu hatası" }, { status: 500 });

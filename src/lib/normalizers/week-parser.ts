@@ -16,11 +16,13 @@ const TURKISH_MONTHS: Record<string, number> = {
 // "hazi̇ran" (i + birleşik nokta U+0307) — sözlükteki "haziran" ile EŞLEŞMEZ ve
 // dosya sessizce yanlış haftaya (weekFromToday) düşer. Ay eşleştirmeden önce
 // İ→i / I→ı çevir, kalan birleşik noktaları temizle.
-function foldTr(s: string): string {
+// EXPORT: doğrudan test edilebilmesi için dışa açık (davranışı iç kullanımla aynı).
+export function foldTr(s: string): string {
   return s.replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase().replace(/̇/g, "");
 }
 
-function smartYear(targetMonth: number, fallbackYear?: number): number {
+// EXPORT: yıl sınırı davranışı tek başına test edilebilsin (bkz. scripts/test.ts §2b).
+export function smartYear(targetMonth: number, fallbackYear?: number): number {
   const now = new Date();
   const fy = fallbackYear ?? now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -36,7 +38,8 @@ function iso(y: number, m: number, d: number): string {
 }
 
 // ISO hafta numarasının Pazartesi'si (örn. 2026 W19 → 2026-05-04).
-function isoWeekMonday(year: number, wk: number): Date {
+// EXPORT: Armağan'ın TEK tarihleme yolu bu; hizalama tek başına test edilir.
+export function isoWeekMonday(year: number, wk: number): Date {
   const simple = new Date(Date.UTC(year, 0, 1 + (wk - 1) * 7));
   const dow = simple.getUTCDay();
   const monday = new Date(simple);
@@ -47,7 +50,9 @@ function isoWeekMonday(year: number, wk: number): Date {
 
 // Takvim geçerliliği — "31.04" / "32 Mart" gibi uydurma tarihler Postgres
 // (date not null) insert'ini düşürüp dosyayı sessizce kaybettirmesin.
-function isValidYmd(y: number, m: number, d: number): boolean {
+// EXPORT: aynı kontrol huppaluppo.ts'in dosya-içi tarih aralığında da kullanılır
+// (tek kaynak) ve doğrudan test edilir.
+export function isValidYmd(y: number, m: number, d: number): boolean {
   if (m < 1 || m > 12 || d < 1 || d > 31) return false;
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
@@ -119,6 +124,25 @@ export function parseWeekFromFilename(filename: string): WeekRange | null {
     }
   }
 
+  // 3b) Gün aralığı + tek sayısal ay: "21-27.09.2026" ya da "21-27.09" (Nezih
+  //     Eylül 2026'dan itibaren böyle adlandırıyor). Yıl yazılmamışsa geçmiş
+  //     kuralıyla çıkarılır. Ay geçişi bu biçimde yazılamaz (27-03.10 gibi) →
+  //     range() başlangıç > bitiş olduğu için null döner, sessizce yanlış hafta vermez.
+  // Baştaki gün önünde rakam/nokta/alt çizgi OLAMAZ: "31.04-06.05" gibi geçersiz
+  // iki-tarihli bir adın içindeki "04-06.05" parçası "4-6 Mayıs" diye yakalanmasın.
+  // Aralık bir HAFTA gibi olmalı (5-7 gün): "rapor 2-3.1" ya da "v1-2.3" gibi
+  // sürüm/sıra numaraları hafta sanılıp aylar önceki bir haftanın üzerine
+  // yazılmasın. Yıl 4 ya da 2 hane ("21-27.09.25" → 2025); başka uzunluk eşleşmez.
+  const oneNum = name.match(/(?<![\d._])(\d{1,2})\s*-\s*(\d{1,2})[._](\d{1,2})(?:[._](\d{4}|\d{2}))?(?![\d]|[._]\d)/);
+  if (oneNum && +oneNum[2] - +oneNum[1] >= 5 && +oneNum[2] - +oneNum[1] <= 7) {
+    const d1 = +oneNum[1], d2 = +oneNum[2], mo = +oneNum[3];
+    if (mo >= 1 && mo <= 12) {
+      const y = oneNum[4] ? (oneNum[4].length === 2 ? 2000 + +oneNum[4] : +oneNum[4]) : smartYear(mo);
+      const r = range(y, mo, d1, y, mo, d2);
+      if (r) return r;
+    }
+  }
+
   // 4) ISO hafta no: "w20_2026", "W-19 2026", "W-21" (yıl opsiyonel → çıkarımla)
   //    Armağan dosyaları "MYTHOS CARD W-19 2026 RAPOR" gibi adlandırılıyor.
   const wn = nameL.match(/\bw[-_\s]*(\d{1,2})(?:[-_\s]+(\d{4}))?/);
@@ -160,15 +184,22 @@ export function canonicalWeek(range: WeekRange): WeekRange {
 // Haftalık satış/stok raporları geçmiş (biten) haftaya aittir; bu yüzden içinde
 // bulunduğumuz YARIM haftaya değil, tamamlanmış haftaya yazılır. Tarihsiz dosyaların
 // (ör. Nezih raporStokGC…) yanlışlıkla bir sonraki/yarım haftaya düşmesini önler.
-export function weekFromToday(): WeekRange {
-  const d = new Date();
-  const dow = (d.getDay() + 6) % 7; // Pazartesi = 0
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - dow - 7); // bir önceki haftanın Pazartesi'si
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
+// SAAT DİLİMİ: hesap BAŞTAN SONA UTC + sabit TR ofseti ile yapılır.
+//
+// Eski sürüm günü/tarihi YEREL getter'larla (getDay/getDate/setDate) okuyup
+// sonucu toISOString() ile UTC'ye basıyordu; compute.ts'teki sonTamamlanmisHafta
+// ise mutlak zamana 3 saat ekleyip tamamen getUTC* ile çalışıyor. İki çapa
+// TZ=Europe/Istanbul'da 00:00-03:00 aralığında AYRIŞIYOR (ölçüldü: an
+// 2026-09-14T22:30Z, yerel Salı 01:30 → iki fonksiyon iki farklı hafta veriyor).
+// Sonucu ağır: tarihsiz bir dosya gece yüklenirse BİR HAFTA ÖNCESİNE yazılır ve
+// yükleme DELETE+INSERT olduğu için o haftanın gerçek verisini siler.
+export function weekFromToday(ofsetSaat = 3): WeekRange {
+  const t = new Date(Date.now() + ofsetSaat * 3600_000);
+  const pazartesiFarki = (t.getUTCDay() + 6) % 7; // Pazartesi = 0
+  const monMs = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())
+    - (pazartesiFarki + 7) * 86_400_000;          // bir önceki haftanın Pazartesi'si
   return {
-    start: monday.toISOString().slice(0, 10),
-    end: sunday.toISOString().slice(0, 10),
+    start: new Date(monMs).toISOString().slice(0, 10),
+    end: new Date(monMs + 6 * 86_400_000).toISOString().slice(0, 10),
   };
 }

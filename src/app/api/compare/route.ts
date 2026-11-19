@@ -3,6 +3,7 @@ import { supabase, fetchAllRows } from "@/lib/supabase";
 import { comparePeriods } from "@/lib/compute";
 import { getApprovedAliases } from "@/lib/aliases";
 import { toNetFacts, SKU_COLS } from "@/lib/rows";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -13,6 +14,9 @@ export async function GET(req: NextRequest) {
   const retailer = searchParams.get("retailer");
   const weekA = searchParams.get("a");
   const weekB = searchParams.get("b");
+  // Bozuk girdi 400 ile döner; eskiden Postgres date ayrıştırmasına kadar gidip 500 oluyordu.
+  if (retailer && !isRetailer(retailer)) return badRequest("Bilinmeyen perakendeci");
+  if ((weekA && !isWeek(weekA)) || (weekB && !isWeek(weekB))) return badRequest("a ve b geçerli tarih olmalı (YYYY-MM-DD)");
   try {
     // Karşılaştırılabilir haftaları döndür (retailer verilmişse)
     if (retailer && (!weekA || !weekB)) {

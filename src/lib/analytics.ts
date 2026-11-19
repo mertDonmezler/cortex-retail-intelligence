@@ -83,11 +83,8 @@ export function wowPct(cur: number, prev: number | null): number | null {
   return ((cur - prev) / prev) * 100;
 }
 
-/** Geçmiş ortalamaya göre yüzde değişim. */
-export function vsAvgPct(cur: number, series: WeekPoint[], uptoIndex: number): number | null {
-  const hist = series.slice(0, uptoIndex).map((p) => p.sales_qty);
-  if (!hist.length) return null;
-  const avg = hist.reduce((a, b) => a + b, 0) / hist.length;
-  if (avg === 0) return null;
-  return ((cur - avg) / avg) * 100;
-}
+// SİLİNDİ: vsAvgPct(cur, series, uptoIndex). Export'luydu ama src/ ve scripts/
+// genelinde tek bir çağıranı yoktu (tarandı) ve hiç test edilmiyordu. Geçmiş
+// ortalamaya göre yüzde değişim hesabı `compute.ts` içindeki retailerCardMetrics
+// tarafından `vs_avg` olarak kendi içinde yapılıyor — yani işlev de sahipsiz
+// değil, sadece bu kopya kullanılmıyordu.

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase, fetchAllRows } from "@/lib/supabase";
 import { netFactor } from "@/lib/margins";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -12,14 +13,20 @@ export async function GET(req: NextRequest) {
   const retailer = searchParams.get("retailer");
   const week = searchParams.get("week");
   if (!retailer) return NextResponse.json({ error: "retailer gerekli" }, { status: 400 });
+  if (!isRetailer(retailer)) return badRequest("Bilinmeyen perakendeci");
+  if (week && !isWeek(week)) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
 
   try {
     // Hafta verilmediyse en güncel haftayı bul
     let wk = week;
     if (!wk) {
-      const { data: w } = await supabase.from("weekly_summary")
+      const { data: w, error: eWk } = await supabase.from("weekly_summary")
         .select("week_start").eq("retailer", retailer)
         .order("week_start", { ascending: false }).limit(1);
+      // OKUMA HATASI "VERI YOK" DEMEK DEGIL. error alani okunmadiginda bir ag/izin
+      // hatasi bos diziye donusuyor ve ekran "veri yok" / "siparis gerekmiyor" diye
+      // okunuyordu. Hata artik 500 olarak yukari cikar.
+      if (eWk) throw eWk;
       wk = w?.[0]?.week_start ?? null;
     }
     if (!wk) return NextResponse.json({ week: null, skus: [], weeks: [] });
@@ -49,7 +56,16 @@ export async function GET(req: NextRequest) {
         const val = v.val * nf;
         return {
           sku_name, sales_qty: v.qty, sales_value: val, stock_qty: v.stock,
-          avg_price: v.qty > 0 ? Math.round((val / v.qty) * 100) / 100 : null,
+          // DİKKAT: bu RAF FİYATI DEĞİL. `val` zaten net kazanç (marj + KDV
+          // düşülmüş) olduğu için adete bölünce çıkan şey "bize kalan birim
+          // kazanç"tır. Alan adı bunu söylesin: eskiden `avg_price` deniyordu ve
+          // arayüz "Ort. Fiyat" diye gösteriyordu → ₺99,99 raflı ürün ekranda
+          // ₺41,66 görünüyordu. Matematik doğru, etiket yanlıştı.
+          avg_net_unit: v.qty > 0 ? Math.round((val / v.qty) * 100) / 100 : null,
+          // Brüt (raf/PSF) birim karşılığı: net birimi netFactor'e bölmek yerine
+          // ham brüt ciroyu adete bölerek türetilir — aynı sayı, ama yuvarlama
+          // hatası birikmez. Karşılaştırma kolonu olarak sunulur.
+          avg_gross_unit: v.qty > 0 ? Math.round((v.val / v.qty) * 100) / 100 : null,
         };
       })
       .sort((a, b) => b.sales_qty - a.sales_qty);

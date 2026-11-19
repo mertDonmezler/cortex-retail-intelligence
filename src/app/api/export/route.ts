@@ -6,6 +6,7 @@ import {
 } from "@/lib/compute";
 import { getApprovedAliases } from "@/lib/aliases";
 import { toNetFacts, toNetSummary, SKU_COLS } from "@/lib/rows";
+import { isWeek, isRetailer, badRequest, optionalWeek } from "@/lib/params";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ export const maxDuration = 60;
 
 // Çok-sayfalı Excel raporu üretir: Özet, Haftalık, Sıralamalar, Kategoriler.
 export async function GET(req: NextRequest) {
-  const week = new URL(req.url).searchParams.get("week") || undefined;
+  const week = optionalWeek(new URL(req.url).searchParams.get("week"));
+  if (week === null) return badRequest("week geçerli tarih olmalı (YYYY-MM-DD)");
   try {
     const { data: summaryRaw } = await supabase
       .from("weekly_summary").select("*").order("week_start", { ascending: true });
@@ -30,12 +32,17 @@ export async function GET(req: NextRequest) {
       [],
       ["AĞ TOPLAMI"],
       ["Satış (adet)", Math.round(exec.network.sales_qty)],
-      ["Ciro (TL)", Math.round(exec.network.sales_value)],
+      ["Net kazanç (TL)", Math.round(exec.network.sales_value)],
       ["Stok (adet)", Math.round(exec.network.stock_qty)],
       ["WoW Satış (adet) %", exec.network.wow_qty != null ? exec.network.wow_qty.toFixed(1) : "-"],
-      ["WoW Ciro (TL) %", exec.network.wow_value != null ? exec.network.wow_value.toFixed(1) : "-"],
+      ["WoW Net kazanç (TL) %", exec.network.wow_value != null ? exec.network.wow_value.toFixed(1) : "-"],
+      // DOSYA DISARIYA CIKIYOR. Ekranlarin hepsi "NET CIRO"/"net karsilik" diye
+      // isaretliyordu, yalniz indirilen Excel ciplak "Ciro" diyordu; raf cirosu
+      // 1.000.000 TL olan bir kanal dosyada 434.000 gorunuyor ve muhasebe/ortak
+      // bunu satis cirosu saniyor. Basliklar duzeltildi, ustune tek satir not.
+      ["Not", "Tutarlar NET KAZANÇTIR: kanal marjı ve KDV düşülmüş. Brüt PSF cirosu değildir."],
       [],
-      ["PERAKENDECİ", "Satış (adet)", "Ciro (TL)", "Adet WoW %", "TL WoW %", "Pay %"],
+      ["PERAKENDECİ", "Satış (adet)", "Net kazanç (TL)", "Adet WoW %", "TL WoW %", "Adet payı %"],
       ...exec.retailers.map((r) =>
         r.has_data
           ? [r.retailer, Math.round(r.sales_qty), r.sales_value != null ? Math.round(r.sales_value) : "-",
@@ -47,7 +54,7 @@ export async function GET(req: NextRequest) {
 
     // 2) Haftalık (tüm summary)
     const weeklyRows = [
-      ["Perakendeci", "Hafta", "Satış", "Ciro", "Stok", "SKU", "Mağaza"],
+      ["Perakendeci", "Hafta", "Satış", "Net kazanç", "Stok", "SKU", "Mağaza"],
       ...summary.map((s) => [
         s.retailer, s.week_start, Math.round(s.sales_qty),
         s.sales_value != null ? Math.round(s.sales_value) : "", Math.round(s.stock_qty),
@@ -73,7 +80,7 @@ export async function GET(req: NextRequest) {
     const aliases = await getApprovedAliases();
     const { top } = globalRankings(latestRows, prevByKey, "value", aliases);
     const topRows = [
-      ["#", "Ürün", "Firmalar", "Satış", "Ciro"],
+      ["#", "Ürün", "Firmalar", "Satış", "Net kazanç"],
       ...top.map((r, i) => [i + 1, r.sku_name, (r.retailers ?? []).join(", "), Math.round(r.sales_qty), Math.round(r.sales_value)]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(topRows), "En Çok Satan");
@@ -81,7 +88,7 @@ export async function GET(req: NextRequest) {
     // 4) Kategoriler
     for (const [dim, label] of [["team", "Takım"], ["brand", "Marka"], ["type", "Tip"]] as const) {
       const cats = categoryBreakdown(latestRows, dim);
-      const catRows = [[label, "Satış", "Ciro", "SKU"], ...cats.map((c) => [c.key, Math.round(c.sales_qty), Math.round(c.sales_value), c.sku_count])];
+      const catRows = [[label, "Satış", "Net kazanç", "SKU"], ...cats.map((c) => [c.key, Math.round(c.sales_qty), Math.round(c.sales_value), c.sku_count])];
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(catRows), `Kategori-${label}`);
     }
 

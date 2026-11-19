@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RETAILERS, fmtInt, fmtMoney, fmtDate } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
+import { SURE, bekleme } from "@/lib/hareket";
 import { parseProductMeta } from "@/lib/compute";
 import {
   SortableTh,
@@ -21,7 +22,13 @@ const STATUS: Record<Status, { label: string; cls: string }> = {
   "tükendi": { label: "Tükendi", cls: "text-red-300 bg-red-500/15 border-red-500/40" },
   "acil": { label: "Acil", cls: "text-orange-300 bg-orange-500/15 border-orange-500/40" },
   "izle": { label: "İzle", cls: "text-yellow-300 bg-yellow-500/10 border-yellow-500/30" },
-  "yeterli": { label: "Yeterli", cls: "text-txt-dim bg-white/5 border-line" },
+  // "Yeterli" DEĞİL "Düşük öncelik": bu ekran YAKIN tükenmeyi ölçüyor (<1 hf acil,
+  // <2 hf izle). 3,7 haftalık stok burada acil değildir, ama /stok'un sipariş
+  // eşiğine (<8 hf) göre hâlâ "az stok"tur. Eski "Yeterli" ifadesi mutlak bir
+  // yeterlilik iddiası gibi okunuyor ve iki ekran aynı ürün için ZIT KELİME
+  // söylüyordu (ölçüm: 21 satır / 22.366 adet). Eşikler bilinçli olarak farklı
+  // kaldı — biri yakın risk, diğeri ikmal politikası; değişen yalnız ifade.
+  "yeterli": { label: "Düşük öncelik", cls: "text-txt-dim bg-white/5 border-line" },
 };
 const STATUS_ORDER: Status[] = ["tükendi", "acil", "izle", "yeterli"];
 
@@ -70,6 +77,10 @@ export default function StockPage() {
   const [minSales, setMinSales] = useState(10);
   const [smartSort, setSmartSort] = useState<SmartSort>("aciliyet");
   const [data, setData] = useState<any>(null);
+  // Min satış girdisi 300 ms susunca isteğe dönüşür: her tuşta bir istek ve
+  // sayfanın çöküp yeniden dolması yerine tek istek.
+  const [minSalesIstek, setMinSalesIstek] = useState(minSales);
+  const [veriAnahtari, setVeriAnahtari] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -83,13 +94,24 @@ export default function StockPage() {
   const [sortMode, setSortMode] = useState<"smart" | "manual">("smart");
 
   useEffect(() => {
+    const t = setTimeout(() => setMinSalesIstek(minSales), SURE.debounce);
+    return () => clearTimeout(t);
+  }, [minSales]);
+
+  useEffect(() => {
+    let iptal = false;
+    const k = `${retailer}|${minSalesIstek}`;
     setLoading(true);
     setErr(null);
-    fetchJson(`/api/stock-alerts?retailer=${encodeURIComponent(retailer)}&minSales=${minSales}`)
-      .then(setData)
-      .catch((e) => { setErr(e.message); setData(null); })
-      .finally(() => setLoading(false));
-  }, [retailer, minSales]);
+    fetchJson(`/api/stock-alerts?retailer=${encodeURIComponent(retailer)}&minSales=${minSalesIstek}`)
+      .then((d) => { if (iptal) return; setData(d); setVeriAnahtari(k); })
+      .catch((e) => { if (iptal) return; setErr(e.message); setData(null); setVeriAnahtari(null); })
+      .finally(() => { if (!iptal) setLoading(false); });
+    return () => { iptal = true; };
+  }, [retailer, minSalesIstek]);
+  // Ekrandaki okuma girilen eşiğe ait değilse (yazarken de) soluk: eski
+  // perakendecinin ya da eski eşiğin sayıları güncel sanılmasın.
+  const bekliyor = data != null && veriAnahtari !== `${retailer}|${minSales}`;
 
   // Perakendeci/eşik değişince filtre seçimlerini sıfırla — eski seçim yeni
   // veri kümesinde boş liste üretip kullanıcıyı şaşırtmasın.
@@ -228,7 +250,7 @@ export default function StockPage() {
               const on = sortMode === "smart" && smartSort === k;
               return (
                 <button key={k} type="button" onClick={() => onSmart(k)} aria-pressed={on}
-                  className={`px-3 py-2 rounded transition-colors ${on ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>{l}</button>
+                  className={`px-3 py-2 rounded hover:transition-colors ${on ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>{l}</button>
               );
             })}
           </div>
@@ -248,7 +270,7 @@ export default function StockPage() {
       {/* İstemci tarafı filtreler — yalnız ZATEN çekilmiş veri üzerinde çalışır.
           Yeniden-çekim sırasında soluklaştır: eski verinin filtreleri güncelmiş gibi görünmesin. */}
       {data && totalRows > 0 && (
-        <div className={`card p-4 space-y-3 transition-opacity ${loading ? "opacity-40 pointer-events-none" : ""}`}>
+        <div className={`card p-4 space-y-3 cx-soluk ${bekliyor ? "pointer-events-none" : ""}`} {...bekleme(bekliyor)}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="mono text-xs text-txt-dim">Filtreler</span>
             <div className="mono text-[11px] text-txt-dim flex items-center gap-3">
@@ -256,7 +278,7 @@ export default function StockPage() {
                 <span className={anyFilter ? "text-neon" : "text-txt"}>{filtered.length}</span> / {totalRows} ürün
               </span>
               {anyFilter && (
-                <button onClick={clearFilters} className="text-txt-dim hover:text-neon transition-colors">temizle</button>
+                <button onClick={clearFilters} className="text-txt-dim hover:text-neon hover:transition-colors">temizle</button>
               )}
             </div>
           </div>
@@ -307,7 +329,7 @@ export default function StockPage() {
       {/* Özet rozetleri — filtrelenmiş kümeyi yansıtır. Yeniden-çekim sırasında
           soluklaştır ki eski perakendecinin sayıları güncel sanılmasın. */}
       {data && (
-        <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-40" : ""}`}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 cx-soluk" {...bekleme(bekliyor)}>
           {/* Hız tanımı + ivme oku lejantı — tabloyu okumadan önce tek satırda ne-nedir. */}
           <div className="col-span-2 md:col-span-4 mono text-[11px] text-txt-dim">
             Hız = son {data?.weeksUsed ?? 4} haftanın <span className="text-txt">haftalık ortalama</span> satışı ·
@@ -317,16 +339,16 @@ export default function StockPage() {
           <StatCard label="TÜKENDİ (satıyor, stok 0)" value={fmtInt(liveCounts.tukendi)} color="#fca5a5" />
           <StatCard label="ACİL (< 1 hafta yeter)" value={fmtInt(liveCounts.acil)} color="#fdba74" />
           <StatCard label="İZLE (1–2 hafta)" value={fmtInt(liveCounts.izle)} color="#fde047" />
-          <StatCard label="YETERLİ (≥ 2 hafta)" value={fmtInt(liveCounts.yeterli)} />
+          <StatCard label="DÜŞÜK ÖNCELİK (≥ 2 hafta)" value={fmtInt(liveCounts.yeterli)} sub="yakın tükenme riski yok — ikmal kararı için Stok Merkezi" />
         </div>
       )}
 
       {err && <div className="card p-4 border-red-500/40 text-red-400 mono text-sm">Veri alınamadı: {err}</div>}
 
-      {loading ? (
-        <div className="mono text-txt-dim animate-pulse py-10 text-center">Yükleniyor…</div>
+      {loading && !data ? (
+        <div className="mono text-txt-dim py-10 text-center">Yükleniyor…</div>
       ) : err || !data ? null : (
-        <div className="card p-6">
+        <div className="card p-6 cx-soluk" {...bekleme(bekliyor)}>
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 className="font-bold">
               Sipariş listesi

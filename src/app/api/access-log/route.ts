@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { supabaseAdmin, fetchAllRows } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
+// Vercel varsayılanı 10 sn; service-role client'ın soğuk kurulumu + 500 satır
+// okuma bunu zorlayabiliyor. Ağır route'lar 60 kullanıyor, buna 30 yeterli.
+export const maxDuration = 30;
 
 // Erişim kaydı özeti — "kaç kez girildi, ne zaman, hatalı deneme var mı".
 // Tablo anon anahtarla okunamaz (RLS + revoke); burada service-role ile okunur.
@@ -16,14 +19,18 @@ export async function GET() {
     since.setUTCDate(since.getUTCDate() - DAYS);
     const sinceIso = since.toISOString();
 
-    const { data, error } = await db.from("access_log")
-      .select("id, ts, event, user_label, ip, user_agent")
-      .gte("ts", sinceIso)
-      .order("ts", { ascending: false })
-      .limit(500);
-    if (error) throw error;
-
-    const rows = data ?? [];
+    // TAM KÜME, KIRPMASIZ. Eskiden `.limit(500)` vardı: 30 günde 500'den çok olay
+    // olsaydı "giriş sayısı" ve "hatalı PIN" sayaçları sessizce eksik çıkardı —
+    // bu projenin kapatmaya çalıştığı hata sınıfı (sessiz kırpma). Sayfalı tam
+    // çekim; sıra benzersiz anahtarı kapsıyor (ts, id).
+    const rows = await fetchAllRows<{ id: number; ts: string; event: string; user_label: string | null; ip: string | null; user_agent: string | null }>(
+      (from, to) => db.from("access_log")
+        .select("id, ts, event, user_label, ip, user_agent")
+        .gte("ts", sinceIso)
+        .order("ts", { ascending: false }).order("id", { ascending: false })
+        .range(from, to),
+      { label: "access_log 30 gün" }
+    );
     const ok = rows.filter((r) => r.event === "login_ok");
     const fail = rows.filter((r) => r.event === "login_fail");
 

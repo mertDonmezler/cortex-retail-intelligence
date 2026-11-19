@@ -6,7 +6,19 @@ import { parseProductMeta } from "@/lib/compute";
 import {
   SortableTh, SearchBox, MultiChips, RangeMin, CsvBtn, StatCard, useSort,
 } from "@/components/Controls";
+import { Info } from "@/components/Info";
 import { fetchJson } from "@/lib/fetchJson";
+import { bekleme } from "@/lib/hareket";
+
+// Birim değer kolonlarının ne OLDUĞUNU tek yerden anlatan açıklamalar. Eski
+// "Ort. Fiyat" etiketi yanıltıcıydı: gösterilen sayı net kazançtan türetiliyor,
+// yani raf fiyatı değil bize kalan birim (₺99,99 raflı ürün ekranda ₺41,66).
+const NET_UNIT_HELP =
+  "Raf fiyatı DEĞİL: net kazanç ÷ satılan adet. Kanal marjı ve KDV düşüldükten " +
+  "sonra bir adetten bize kalan tutar. Yanındaki 'Brüt PSF' kolonu raf tarafını gösterir.";
+const GROSS_UNIT_HELP =
+  "Brüt birim (PSF): perakendecinin bildirdiği satış tutarı ÷ adet — raf fiyatı " +
+  "tarafı. Bize kalan kısım için 'Ort. Net Birim' kolonuna bakın.";
 
 // SKU satırı: API'nin (sku-detail) zaten döndürdüğü şekil. Burada ek alan
 // (brand/team/type) yalnızca İSTEMCİDE türetilir; yeni veri çekilmez.
@@ -16,7 +28,8 @@ type SkuRow = {
   sales_qty: number;
   sales_value: number;
   stock_qty: number;
-  avg_price: number | null;
+  avg_net_unit: number | null;   // net kazanç / adet (bize kalan)
+  avg_gross_unit: number | null; // brüt PSF / adet (raf tarafı)
 };
 // İsim ayrıştırmasıyla zenginleştirilmiş satır (filtre/sıralama/CSV bunu kullanır).
 type SkuRowMeta = SkuRow & {
@@ -132,9 +145,10 @@ export default function SkuPage() {
             { key: "team", label: "Takım" },
             { key: "type", label: "Tip" },
             { key: "sales_qty", label: "Satış" },
-            { key: "sales_value", label: "TL" },
+            { key: "sales_value", label: "NetKazanç TL" },
             { key: "stock_qty", label: "Stok" },
-            { key: "avg_price", label: "Ort.Fiyat" },
+            { key: "avg_net_unit", label: "Ort.NetBirim TL" },
+            { key: "avg_gross_unit", label: "Ort.BrütPSF TL" },
           ]}
           label="⬇ CSV indir"
         />
@@ -164,8 +178,8 @@ export default function SkuPage() {
       </div>
 
       {/* Marka / Takım / Tip chip filtreleri — yalnızca veride bulunan değerler. */}
-      {!loading && !err && enriched.length > 0 && (
-        <div className="card p-4 space-y-3">
+      {!err && enriched.length > 0 && (
+        <div className="card p-4 space-y-3 cx-soluk" {...bekleme(loading)}>
           {brandOpts.length > 1 && (
             <MultiChips label="Marka:" options={brandOpts} selected={brands}
               onToggle={(o) => toggleIn(setBrands, o)}
@@ -184,7 +198,7 @@ export default function SkuPage() {
           {activeFilters > 0 && (
             <button type="button"
               onClick={() => { setBrands([]); setTeams([]); setTypes([]); setMinSales(0); }}
-              className="mono text-[11px] text-txt-dim hover:text-neon transition-colors">
+              className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors">
               ✕ filtreleri temizle ({activeFilters})
             </button>
           )}
@@ -192,12 +206,13 @@ export default function SkuPage() {
       )}
 
       {/* Filtrelenen kümenin KPI özeti. */}
-      {!loading && !err && enriched.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {!err && enriched.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 cx-soluk" {...bekleme(loading)}>
           <StatCard label="GÖRÜNEN SKU" value={fmtInt(totals.count)}
             sub={`/ ${fmtInt(enriched.length)} toplam`} color={rc} />
           <StatCard label="TOPLAM SATIŞ" value={fmtInt(totals.qty)} sub="adet" />
-          <StatCard label="TOPLAM CİRO" value={fmtMoney(totals.val)} sub="net kazanç" />
+          {/* "CİRO" değil: gösterilen tutar marj + KDV düşülmüş NET kazanç. */}
+          <StatCard label="NET KAZANÇ" value={fmtMoney(totals.val)} sub="marj+KDV düşülmüş" />
           <StatCard label="TOPLAM STOK" value={fmtInt(totals.stock)} sub="adet" />
         </div>
       )}
@@ -208,9 +223,9 @@ export default function SkuPage() {
         </div>
       )}
 
-      <div className="card p-6">
-        {loading ? (
-          <div className="mono text-txt-dim animate-pulse py-6 text-center">Yükleniyor…</div>
+      <div className="card p-6 cx-soluk" {...bekleme(loading && enriched.length > 0)}>
+        {loading && enriched.length === 0 ? (
+          <div className="mono text-txt-dim py-6 text-center">Yükleniyor…</div>
         ) : err ? (
           <div className="mono text-txt-dim py-6 text-center">Sunucu hatası nedeniyle veri gösterilemiyor.</div>
         ) : enriched.length === 0 ? (
@@ -229,9 +244,15 @@ export default function SkuPage() {
                     <SortableTh label="Marka" sortKey="brand" active={sortKey === "brand"} dir={dir} onClick={toggle} />
                     <SortableTh label="Tip" sortKey="type" active={sortKey === "type"} dir={dir} onClick={toggle} />
                     <SortableTh label="Satış" sortKey="sales_qty" active={sortKey === "sales_qty"} dir={dir} onClick={toggle} align="right" />
-                    <SortableTh label="TL" sortKey="sales_value" active={sortKey === "sales_value"} dir={dir} onClick={toggle} align="right" />
+                    <SortableTh label="Net TL" sortKey="sales_value" active={sortKey === "sales_value"} dir={dir} onClick={toggle} align="right" />
                     <SortableTh label="Stok" sortKey="stock_qty" active={sortKey === "stock_qty"} dir={dir} onClick={toggle} align="right" />
-                    <SortableTh label="Ort. Fiyat" sortKey="avg_price" active={sortKey === "avg_price"} dir={dir} onClick={toggle} align="right" />
+                    {/* Etiket dürüstlüğü: bu kolon raf fiyatı değil, birim NET kazanç.
+                        Açıklama `label` içine gömülü ⓘ ile verilir (SortableTh
+                        ReactNode kabul ediyor → paylaşılan bileşene dokunmak gerekmez). */}
+                    <SortableTh label={<>Ort. Net Birim<Info text={NET_UNIT_HELP} /></>}
+                      sortKey="avg_net_unit" active={sortKey === "avg_net_unit"} dir={dir} onClick={toggle} align="right" />
+                    <SortableTh label={<>Ort. Brüt PSF<Info text={GROSS_UNIT_HELP} /></>}
+                      sortKey="avg_gross_unit" active={sortKey === "avg_gross_unit"} dir={dir} onClick={toggle} align="right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -243,7 +264,8 @@ export default function SkuPage() {
                       <td className="mono text-right">{fmtInt(s?.sales_qty ?? 0)}</td>
                       <td className="mono text-right">{(s?.sales_value ?? 0) > 0 ? fmtMoney(s.sales_value) : "—"}</td>
                       <td className="mono text-right">{fmtInt(s?.stock_qty ?? 0)}</td>
-                      <td className="mono text-right">{s?.avg_price ? fmtMoney(s.avg_price) : "—"}</td>
+                      <td className="mono text-right">{s?.avg_net_unit ? fmtMoney(s.avg_net_unit) : "—"}</td>
+                      <td className="mono text-right text-txt-dim">{s?.avg_gross_unit ? fmtMoney(s.avg_gross_unit) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

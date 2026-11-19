@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import { fmtInt, fmtMoney, fmtPct, fmtDate, RETAILER_COLORS, colorOf } from "@/lib/format";
 import { fetchJson } from "@/lib/fetchJson";
-import { parseProductMeta } from "@/lib/compute";
+import { bekleme } from "@/lib/hareket";
+import { parseProductMeta, sonTamamlanmisHafta } from "@/lib/compute";
 import {
   SortableTh,
   SearchBox,
@@ -15,6 +15,14 @@ import {
   CsvBtn,
   useSort,
 } from "@/components/Controls";
+import { Info } from "@/components/Info";
+
+// Bu sayfanın listeleri KESİLMİŞ alt kümelerdir; KPI'lar ağ toplamı değildir.
+const SUBSET_HELP =
+  "Bu kart yalnızca ekrandaki listenin toplamıdır — ağın hafta toplamı değil. " +
+  "Liste kısaltılmış: 'En çok satan' ilk 20, 'Yükselen/Düşen' ilk 15 ürün. " +
+  "Alt satırdaki yüzde, bu toplamın ağın hafta genelindeki net kazancına oranıdır. " +
+  "Ağın tamamı için Kontrol Paneli'ne bakın.";
 
 const COLORS = RETAILER_COLORS;
 
@@ -51,6 +59,8 @@ export default function RankingsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [weeks, setWeeks] = useState<string[]>([]);
+  // "güncel hafta" ifadesinin çapası — takvime bağlı, hafta seçicisinden bağımsız.
+  const takvimHaftasi = useMemo(() => sonTamamlanmisHafta(new Date()), []);
   const [week, setWeek] = useState<string>(""); // "" = en güncel hafta
   const [tab, setTab] = useState<Tab>("top");
   const [catDim, setCatDim] = useState<CatDim>("team");
@@ -65,16 +75,23 @@ export default function RankingsPage() {
   const [minSales, setMinSales] = useState(0);
   const [catSearch, setCatSearch] = useState("");
 
+  // Ekrandaki listenin hafta|metrik anahtarı — hafta ya da metrik değişince
+  // eski liste yerinde soluk durur, sayfa boşalıp yeniden dolmaz.
+  const [veriAnahtari, setVeriAnahtari] = useState<string | null>(null);
   useEffect(() => {
+    let iptal = false;
+    const k = `${week}|${metric}`;
     setLoading(true);
     const params = new URLSearchParams();
     if (week) params.set("week", week);
     params.set("metric", metric);
     fetchJson(`/api/rankings?${params.toString()}`)
-      .then((d) => { setData(d); setWeeks(d?.weeks ?? []); setErr(null); })
-      .catch((e) => { setErr(e.message); setData(null); }) // hatada veriyi sıfırla; render güvenli default'lara düşer
-      .finally(() => setLoading(false));
+      .then((d) => { if (iptal) return; setData(d); setWeeks(d?.weeks ?? []); setVeriAnahtari(k); setErr(null); })
+      .catch((e) => { if (iptal) return; setErr(e.message); setData(null); setVeriAnahtari(null); }) // hatada veriyi sıfırla; render güvenli default'lara düşer
+      .finally(() => { if (!iptal) setLoading(false); });
+    return () => { iptal = true; };
   }, [week, metric]);
+  const bekliyor = data != null && veriAnahtari !== `${week}|${metric}`;
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "top", label: "🏆 En Çok Satan" },
@@ -181,21 +198,58 @@ export default function RankingsPage() {
     return { qty, val, stock };
   }, [sorted]);
 
+  // ── AĞ TOPLAMI (ek fetch YOK) ──
+  // Bu sayfadaki listeler alt kümedir: "top" = en çok satan İLK 20, risers/fallers
+  // = ilk 15. Dolayısıyla KPI'daki tutar ağ toplamı DEĞİL; öyle sanılırsa ciro
+  // yarıya yakın yanlış okunur (ölçüm: 2026-07-27'de ₺631.179 = ağ netinin %49,7'si).
+  // Ağ toplamı zaten elimizde: `categories` kırılımı TÜM hafta satırları üzerinden
+  // hesaplanıyor, yani herhangi bir boyutun (brand) toplamı = ağın hafta toplamı.
+  const network = useMemo(() => {
+    const cats: CatRow[] = data?.categories?.brand ?? [];
+    if (!cats.length) return null;
+    return {
+      qty: cats.reduce((a, c) => a + (c.sales_qty ?? 0), 0),
+      val: cats.reduce((a, c) => a + (c.sales_value ?? 0), 0),
+    };
+  }, [data]);
+  // Payı yalnızca anlamlıysa göster. fmtPct kullanılmaz: o büyüme için "+" ekler.
+  const shareTxt = (part: number, total: number | undefined) =>
+    total && total > 0 && part > 0
+      ? `ağın %${((part / total) * 100).toFixed(1).replace(".", ",")}'i`
+      : null;
+
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Global <span className="neon-text">Sıralamalar</span></h1>
+          {/* "TÜM PERAKENDECİLER" ARTIK KOŞULLU. Bu sayfa tek bir haftanın
+              kesiti; o hafta rapor göndermeyen firma tabloda hiç görünmüyor ve
+              ekran "o firmada satan ürün yok" gibi okunuyordu. Kaç firmanın
+              gerçekten bu haftada olduğu yazılır, eksik olan adıyla söylenir. */}
           <p className="text-txt-dim mono text-sm mt-1">
-            Tüm perakendeciler · cross-retailer{data?.week ? ` · hafta ${fmtDate(data.week)}` : ""}
+            {data?.kapsam
+              ? `${data.kapsam.firmalar.length}/${data.kapsam.toplam} perakendeci · cross-retailer`
+              : "Tüm perakendeciler · cross-retailer"}
+            {data?.week ? (data.week === takvimHaftasi ? " · güncel hafta" : ` · hafta ${fmtDate(data.week)}`) : ""}
+            {" · "}<span className="text-txt-dim/80">listeler kısaltılmış (en çok satan 20 · hareket eden 15)</span>
           </p>
+          {data?.kapsam?.eksik?.length > 0 && (
+            <p className="mono text-[11px] mt-1" style={{ color: "#f8b00b" }}>
+              Bu haftada yok:{" "}
+              {data.kapsam.eksik.map((e: any) =>
+                `${e.retailer}${e.sonVeri ? ` (son veri ${fmtDate(e.sonVeri)})` : " (hiç veri yok)"}`
+              ).join(" · ")}
+              {" — listede görünmemeleri satış yapmadıkları anlamına gelmez."}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-1 mono text-xs" role="group" aria-label="Büyüme metriği">
             <button type="button" onClick={() => setMetric("value")} aria-pressed={metric === "value"}
-              className={`px-3 py-1.5 rounded transition-colors ${metric === "value" ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>Büyüme: Ciro</button>
+              className={`px-3 py-1.5 rounded hover:transition-colors ${metric === "value" ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>Büyüme: Ciro</button>
             <button type="button" onClick={() => setMetric("qty")} aria-pressed={metric === "qty"}
-              className={`px-3 py-1.5 rounded transition-colors ${metric === "qty" ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>Adet</button>
+              className={`px-3 py-1.5 rounded hover:transition-colors ${metric === "qty" ? "bg-neon/15 text-neon" : "text-txt-dim hover:text-txt"}`}>Adet</button>
           </div>
           <select
             value={week || data?.week || ""}
@@ -223,10 +277,10 @@ export default function RankingsPage() {
         <div className="card p-4 border-red-500/40 text-red-400 mono text-sm">Veri alınamadı: {err}</div>
       )}
 
-      {loading ? (
-        <div className="card p-10 text-center mono text-txt-dim animate-pulse">Yükleniyor…</div>
+      {loading && !data ? (
+        <div className="card card-flat p-10 text-center mono text-txt-dim">Yükleniyor…</div>
       ) : err ? null : !data ? null : tab === "categories" ? (
-        <div className="space-y-5">
+        <div className="space-y-5 cx-soluk" {...bekleme(bekliyor)}>
           <div className="card p-4 space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <SegTabs<CatDim> tabs={CAT_DIMS} active={catDim} onChange={setCatDim} />
@@ -257,13 +311,13 @@ export default function RankingsPage() {
                 </thead>
                 <tbody>
                   {catSorted.map((c, i) => (
-                    <motion.tr key={c.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.02, 0.3) }}>
+                    <tr key={c.key}>
                       <td className="mono text-txt-dim">{i + 1}</td>
                       <td className="font-medium">{c.key}</td>
                       <td className="mono text-right">{fmtInt(c.sales_qty)}</td>
                       <td className="mono text-right">{c.sales_value > 0 ? fmtMoney(c.sales_value) : "—"}</td>
                       <td className="mono text-right text-txt-dim">{fmtInt(c.sku_count)}</td>
-                    </motion.tr>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -271,13 +325,23 @@ export default function RankingsPage() {
           </div>
         </div>
       ) : (
-        <div className="space-y-5">
-          {/* KPI — görünen (filtreli) satırların toplamı */}
+        <div className="space-y-5 cx-soluk" {...bekleme(bekliyor)}>
+          {/* KPI — GÖRÜNEN satırların toplamı. Bu bir alt kümedir (top 20 / mover 15);
+              ağ toplamı sanılmasın diye etiketler "listedeki N ürün" der ve yanına
+              ağ payı yazılır (ağ toplamı `categories`'ten, ek fetch olmadan). */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="GÖRÜNEN ÜRÜN" value={fmtInt(sorted.length)} sub={`${baseRows.length} içinden`} />
-            <StatCard label="TOPLAM SATIŞ" value={fmtInt(summary.qty)} sub="adet" />
-            <StatCard label="TOPLAM CİRO" value={summary.val > 0 ? fmtMoney(summary.val) : "—"} sub="net kazanç" />
-            <StatCard label="TOPLAM STOK" value={fmtInt(summary.stock)} sub="adet" />
+            <StatCard label="LİSTEDEKİ ÜRÜN" value={fmtInt(sorted.length)} sub={`${baseRows.length} içinden`} />
+            <StatCard
+              label="LİSTENİN SATIŞI"
+              value={fmtInt(summary.qty)}
+              sub={shareTxt(summary.qty, network?.qty) ?? "adet"}
+            />
+            <StatCard
+              label={<>LİSTENİN NET KAZANCI<Info text={SUBSET_HELP} /></>}
+              value={summary.val > 0 ? fmtMoney(summary.val) : "—"}
+              sub={shareTxt(summary.val, network?.val) ?? "ağ toplamı DEĞİL"}
+            />
+            <StatCard label="LİSTENİN STOĞU" value={fmtInt(summary.stock)} sub="adet" />
           </div>
 
           {/* Filtre paneli — hepsi istemci tarafı, çekilen veri üzerinde */}
@@ -286,7 +350,7 @@ export default function RankingsPage() {
               <SearchBox value={search} onChange={setSearch} placeholder="🔍 ürün adı / barkod…" className="flex-1 min-w-[220px]" />
               <RangeMin label="min satış" value={minSales} onChange={setMinSales} suffix="adet" step={10} />
               {activeFilters > 0 && (
-                <button onClick={clearFilters} className="mono text-[11px] text-txt-dim hover:text-neon transition-colors">
+                <button onClick={clearFilters} className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors">
                   ✕ filtreleri temizle ({activeFilters})
                 </button>
               )}
@@ -334,8 +398,9 @@ export default function RankingsPage() {
 
           <div className="card p-6 overflow-x-auto">
             <div className="flex items-center justify-between mb-3">
+              {/* Başlık listenin KESİLMİŞ olduğunu söylesin — "tüm ürünler" sanılmasın. */}
               <h2 className="font-bold">
-                {tab === "top" ? "En çok satan ürünler" : tab === "risers" ? "Yükselen ürünler" : "Düşen ürünler"}
+                {tab === "top" ? "En çok satan ilk 20 ürün" : tab === "risers" ? "En çok yükselen 15 ürün" : "En çok düşen 15 ürün"}
               </h2>
               <span className="mono text-xs text-txt-dim">{sorted.length} / {baseRows.length} ürün</span>
             </div>
@@ -363,7 +428,7 @@ export default function RankingsPage() {
                 </thead>
                 <tbody>
                   {sorted.map((r, i) => (
-                    <motion.tr key={(r.barkod ?? r.sku_name) + i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.02, 0.3) }}>
+                    <tr key={(r.barkod ?? r.sku_name) + i}>
                       <td className="mono text-txt-dim">{i + 1}</td>
                       <td className="max-w-xs truncate" title={(r.barkod ? r.barkod + " · " : "") + r.sku_name}>{r.sku_name}</td>
                       <td>
@@ -380,7 +445,7 @@ export default function RankingsPage() {
                         <td className={`mono text-right ${(r.growth ?? 0) >= 0 ? "text-neon" : "text-red-400"}`}>{fmtPct(r.growth)}</td>
                       </>}
                       <td className="mono text-right">{r.sales_value > 0 ? fmtMoney(r.sales_value) : "—"}</td>
-                    </motion.tr>
+                    </tr>
                   ))}
                 </tbody>
               </table>
@@ -398,17 +463,15 @@ function CategoryBars({ items }: { items: CatRow[] }) {
   return (
     <div className="space-y-2">
       {items.map((it, i) => (
-        <motion.div key={it.key} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: Math.min(i * 0.03, 0.4) }}>
+        <div key={it.key}>
           <div className="flex justify-between text-sm mb-1">
             <span className="font-medium">{it.key}</span>
             <span className="mono text-txt-dim">{fmtInt(it.sales_qty)} adet · {it.sku_count} SKU{it.sales_value > 0 ? ` · ${fmtMoney(it.sales_value)}` : ""}</span>
           </div>
           <div className="h-2.5 rounded-full bg-ink-3 overflow-hidden">
-            <motion.div className="h-full rounded-full bg-neon"
-              initial={{ width: 0 }} animate={{ width: `${(it.sales_qty / max) * 100}%` }}
-              transition={{ delay: Math.min(i * 0.03, 0.4) + 0.1, duration: 0.5 }} />
+            <div className="h-full rounded-full bg-neon" style={{ width: `${(it.sales_qty / max) * 100}%` }} />
           </div>
-        </motion.div>
+        </div>
       ))}
     </div>
   );

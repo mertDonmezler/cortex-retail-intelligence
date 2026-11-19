@@ -35,15 +35,23 @@ interface Row {
   have: number;
   expect: number;
   byRetailer: Record<string, number>;
+  /** Bu ayda türetilmiş (tahmini) hafta var — toplam kısmen tahmin. */
+  turetilmis: boolean;
 }
 
 export function MonthlySummary({
-  summary, visible, months = 6,
+  summary, visible, months = 0, derived = [],
 }: {
   summary: WeeklySummary[];
   visible: string[];
+  /** Türetilmiş (tahmini) haftalar — içeren ay işaretlenir. */
+  derived?: { retailer: string; week_start: string }[];
+  /** Gösterilecek ay sayısı. 0 = TÜMÜ (varsayılan).
+   *  Eskiden 6 idi; veri 9 ayı kapsıyor (Ara 2025 → Ağu 2026), yani ilk üç ay
+   *  ekranda hiç yoktu ve tablonun altındaki toplamlar "tüm geçmiş" sanılıyordu. */
   months?: number;
 }) {
+  const derivedSet = useMemo(() => new Set(derived.map((d) => d.retailer + "|" + d.week_start)), [derived]);
   const rows = useMemo<Row[]>(() => {
     const vis = new Set(visible);
     const src = summary.filter((s) => vis.has(s.retailer));
@@ -88,14 +96,15 @@ export function MonthlySummary({
       for (const w of e.weeks) {
         for (const [ret, fw] of firstWeek) if (vis.has(ret) && fw <= w) expect++;
       }
+      const turetilmis = e.recs.some((s) => derivedSet.has(s.retailer + "|" + s.week_start));
       out.push({
         key, label: `${AY[m]} ${y}`, net, qty, stock,
-        weeks: e.weeks.size, have: e.recs.length, expect, byRetailer,
+        weeks: e.weeks.size, have: e.recs.length, expect, byRetailer, turetilmis,
       });
     }
     out.sort((a, b) => (a.key < b.key ? 1 : -1)); // yeni → eski
-    return out.slice(0, months);
-  }, [summary, visible, months]);
+    return months > 0 ? out.slice(0, months) : out;
+  }, [summary, visible, months, derivedSet]);
 
   if (rows.length === 0) return null;
   const maxNet = Math.max(...rows.map((r) => r.net), 1);
@@ -105,7 +114,7 @@ export function MonthlySummary({
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h2 className="font-bold">
           Aylık Özet
-          <span className="mono text-xs text-txt-dim font-normal ml-2">net kazanç · son {rows.length} ay</span>
+          <span className="mono text-xs text-txt-dim font-normal ml-2">net kazanç · {rows.length} ay · tüm geçmiş</span>
           <Info text={"Hafta, günlerinin çoğunun düştüğü aya yazılır (ör. 29 Haz-5 Tem → Temmuz), böylece ay toplamları haftalık rakamlarla birebir tutar. Stok toplanmaz: ay sonu = her firmanın o aydaki son haftası. Bir ayda tüm firma-hafta verisi gelmemişse ay 'kısmi' işaretlenir — eksik veri düşüş gibi okunmasın."} />
         </h2>
         <span className="mono text-[11px] text-txt-dim">Δ = önceki aya göre</span>
@@ -126,6 +135,11 @@ export function MonthlySummary({
                   {partial && (
                     <span title={`${r.have}/${r.expect} firma-hafta verisi geldi`} style={{ color: "#f8b00b" }}>
                       {" "}· kısmi
+                    </span>
+                  )}
+                  {r.turetilmis && (
+                    <span title="Bu ayın bir haftası aylık dosyadan türetildi; satışı tahmindir." style={{ color: "#f8b00b" }}>
+                      {" "}· tahmini hafta içerir
                     </span>
                   )}
                 </div>

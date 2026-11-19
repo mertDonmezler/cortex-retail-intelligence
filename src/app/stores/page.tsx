@@ -12,6 +12,8 @@ import {
   useSort,
 } from "@/components/Controls";
 import { fetchJson } from "@/lib/fetchJson";
+import { bekleme } from "@/lib/hareket";
+import { izle } from "@/lib/mesgul";
 
 // Mağaza-bazlı veri yalnızca bazı perakendecilerde var ve zamanla değişir
 // (şu an Armağan canlı; DR 30 Mart'a kadar veriyordu, sonra formatı mağaza
@@ -38,12 +40,21 @@ function storeGroup(store: string): string {
 
 export default function StoresPage() {
   const [retailer, setRetailer] = useState(""); // keşif tamamlanınca dolar
-  const [storeRetailers, setStoreRetailers] = useState<{ retailer: string; week: string }[]>([]);
+  const [storeRetailers, setStoreRetailers] = useState<{ retailer: string; week: string; stale?: boolean; weeksBehind?: number }[]>([]);
+  // Mağaza kırılımı ağın güncel haftasının gerisinde kalan firmalar. Sessiz
+  // kalınamaz: D&R son mağaza verisini 30.03.2026'da göndermiş ve o tarihten beri
+  // yalnız toplam gönderiyor — bu ekranda D&R satışının %48,7'si görünmüyor ama
+  // ekran boş/eski veriyi normal veri gibi gösteriyordu.
+  const [gap, setGap] = useState<{ retailer: string; week: string; weeksBehind: number }[]>([]);
+  const [ownGap, setOwnGap] = useState<{ week: string; weeksBehind: number } | null>(null);
   const [week, setWeek] = useState<string>("");
   const [weeks, setWeeks] = useState<string[]>([]);
   const [stores, setStores] = useState<StoreRow[]>([]);
   const [storeLevel, setStoreLevel] = useState(true);
   const [loading, setLoading] = useState(true); // açılışta keşif beklenirken
+  // İlk yanıt geldi mi — sonrasında yeniden çekim sırasında eski içerik soluk
+  // durur, sayfa "Yükleniyor…"a çökmez.
+  const [yuklendi, setYuklendi] = useState(false);
   const [err, setErr] = useState<string>("");
   const [search, setSearch] = useState("");
   const [minSales, setMinSales] = useState(0);
@@ -58,7 +69,7 @@ export default function StoresPage() {
     if (detail[store] || !week) return;
     setDetLoading(store);
     try {
-      const r = await fetch(`/api/store-detail?retailer=${encodeURIComponent(retailer)}&week=${encodeURIComponent(week)}&store=${encodeURIComponent(store)}`);
+      const r = await izle(fetch(`/api/store-detail?retailer=${encodeURIComponent(retailer)}&week=${encodeURIComponent(week)}&store=${encodeURIComponent(store)}`));
       const d = await r.json().catch(() => ({}));
       setDetail((p) => ({ ...p, [store]: d.skus ?? [] }));
     } catch { setDetail((p) => ({ ...p, [store]: [] })); }
@@ -71,6 +82,11 @@ export default function StoresPage() {
       .then((d) => {
         if (d?.discovery) {
           setStoreRetailers(d.retailers ?? []);
+          setGap(
+            (d.retailers ?? [])
+              .filter((r: any) => r.stale)
+              .map((r: any) => ({ retailer: r.retailer, week: r.week, weeksBehind: r.weeksBehind ?? 0 }))
+          );
           setRetailer((cur) => cur || d.default || "Armağan");
         } else {
           setRetailer((cur) => cur || "Armağan");
@@ -81,6 +97,8 @@ export default function StoresPage() {
 
   useEffect(() => {
     if (!retailer) return; // keşif retailer'ı belirleyene kadar bekle (loading=true kalır)
+    // Firma değişince hafta da sıfırlanıyor → iki istek; geç dönen eskisi yenisini ezmesin.
+    let iptal = false;
     setLoading(true);
     setErr("");
     setOpenStore(null);
@@ -88,12 +106,17 @@ export default function StoresPage() {
     const q = week ? `&week=${week}` : "";
     fetchJson(`/api/stores?retailer=${encodeURIComponent(retailer)}${q}`)
       .then((d) => {
+        if (iptal) return;
+        setYuklendi(true);
         setStores(d.stores ?? []);
         setWeeks(d.weeks ?? []);
         setStoreLevel(d.storeLevel ?? true);
+        setOwnGap(d.stale ? { week: d.latestStoreWeek, weeksBehind: d.weeksBehind ?? 0 } : null);
         if (d.week && !week) setWeek(d.week);
       })
       .catch((e) => {
+        if (iptal) return;
+        setYuklendi(true);
         // Hata durumunda state'leri güvenli boş default'a çek; storeLevel'i true tut
         // ki render "mağaza-bazlı veri yok" yerine gerçek hatayı göstersin.
         setErr(e.message);
@@ -101,7 +124,8 @@ export default function StoresPage() {
         setWeeks([]);
         setStoreLevel(true);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!iptal) setLoading(false); });
+    return () => { iptal = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retailer, week]);
 
@@ -140,12 +164,18 @@ export default function StoresPage() {
   const totalQty = filtered.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
   const totalVal = filtered.reduce((a, s) => a + (s?.sales_value ?? 0), 0);
   const totalStock = filtered.reduce((a, s) => a + (s?.stock_qty ?? 0), 0);
-  const netQty = rows.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
+  // AD BILINCLI: bu toplam AGIN degil, YALNIZ SECILI PERAKENDECININ magaza
+  // toplami. Sayfa tek bir /api/stores?retailer=X cagrisiyla besleniyor; ag
+  // toplami hicbir yerden cekilmiyor. Eski ad (`netQty`) ve "agin %X'i" cumlesi
+  // birlikte olcusuz bir oran uretiyordu (Toyzz + Istanbul -> "agin %38'i",
+  // gercek ag payi ~%12).
+  const retailerQty = rows.reduce((a, s) => a + (s?.sales_qty ?? 0), 0);
   const filterActive = filtered.length !== rows.length;
   // Aktif istemci-tarafı süzgeç sayısı (arama + min satış + şehir/grup seçimi).
   const activeFilters = (q ? 1 : 0) + (minSales > 0 ? 1 : 0) + groups.length;
   const clearFilters = () => { setSearch(""); setMinSales(0); setGroups([]); };
-  // Satış payı bar'ı tüm-ağ maksimumuna göre (süzgeçten bağımsız sabit ölçek).
+  // Satis payi bari BU PERAKENDECININ magaza maksimumuna gore (suzgecten bagimsiz
+  // sabit olcek). "Tum ag" degil: sayfa tek firmanin satirlariyla besleniyor.
   const maxQty = Math.max(...rows.map((s) => s?.sales_qty ?? 0), 1);
 
   const csvCols = [
@@ -181,6 +211,30 @@ export default function StoresPage() {
         />
       </div>
 
+      {/* MAĞAZA VERİSİ KESİLEN FİRMALAR. Metin firma adı ve tarihten OTOMATİK
+          türer — yeni bir firma da kesse aynı uyarı kendiliğinden çıkar. Seçili
+          firmanın kendi boşluğu ayrıca vurgulanır (ekrandaki sayılar eksik). */}
+      {(gap.length > 0 || ownGap) && (
+        <div className="card p-3 border-amber-500/40 bg-amber-500/[0.06]">
+          <div className="mono text-[11px] tracking-wider text-amber-400 mb-1">⚠ EKSİK MAĞAZA VERİSİ</div>
+          {ownGap && (
+            <p className="mono text-xs text-amber-200/90">
+              {retailer} mağaza kırılımı <b>{fmtDate(ownGap.week)}</b> haftasından beri gelmiyor
+              ({ownGap.weeksBehind} hafta geride) — firma yalnız toplam gönderiyor, bu ekrandaki
+              {" "}{retailer} sayıları <b>eksiktir</b>. Ağ toplamları etkilenmez.
+            </p>
+          )}
+          {gap.filter((g) => g.retailer !== retailer).length > 0 && (
+            <p className="mono text-[11px] text-txt-dim mt-1">
+              Diğer geride kalanlar:{" "}
+              {gap.filter((g) => g.retailer !== retailer)
+                .map((g) => `${g.retailer} (${fmtDate(g.week)}, ${g.weeksBehind} hf)`)
+                .join(" · ")}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="card p-4 flex flex-wrap items-end gap-4">
         <div>
           <label className="mono text-xs text-txt-dim block mb-1">Perakendeci</label>
@@ -213,7 +267,7 @@ export default function StoresPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="mono text-[11px] text-txt-dim hover:text-neon transition-colors"
+              className="mono text-[11px] text-txt-dim hover:text-neon hover:transition-colors"
             >
               ✕ filtreleri temizle ({activeFilters})
             </button>
@@ -222,8 +276,8 @@ export default function StoresPage() {
       </div>
 
       {/* Şehir/şube-grubu süzgeci — yalnızca >1 grup varken anlamlı */}
-      {!loading && !err && storeLevel && groupOptions.length > 1 && (
-        <div className="card p-3">
+      {yuklendi && !err && storeLevel && groupOptions.length > 1 && (
+        <div className="card p-3 cx-soluk" {...bekleme(loading)}>
           <MultiChips
             label="Şehir/grup:"
             options={groupOptions}
@@ -237,8 +291,9 @@ export default function StoresPage() {
         </div>
       )}
 
-      {loading ? (
-        <div className="card p-10 text-center mono text-txt-dim animate-pulse">Yükleniyor…</div>
+      <div className="cx-soluk space-y-6" {...bekleme(loading && yuklendi)}>
+      {loading && !yuklendi ? (
+        <div className="card card-flat p-10 text-center mono text-txt-dim">Yükleniyor…</div>
       ) : err ? (
         <div className="card p-4 border-red-500/40 text-red-400 mono text-sm">Veri alınamadı: {err}</div>
       ) : !storeLevel ? (
@@ -270,7 +325,9 @@ export default function StoresPage() {
               label="TOPLAM SATIŞ"
               value={fmtInt(totalQty)}
               color="#e8ffe8"
-              sub={filterActive && netQty > 0 ? `ağın %${((totalQty / netQty) * 100).toFixed(0)}'ı` : "adet"}
+              sub={filterActive && retailerQty > 0
+                ? `${retailer} mağazalarının %${((totalQty / retailerQty) * 100).toFixed(0)}'i`
+                : "adet"}
             />
             <StatCard
               label="TOPLAM CİRO (NET)"
@@ -338,7 +395,7 @@ export default function StoresPage() {
                         <tr>
                           <td colSpan={7} className="bg-ink-2/40">
                             {detLoading === store ? (
-                              <div className="mono text-xs text-txt-dim p-3 animate-pulse">Yükleniyor…</div>
+                              <div className="mono text-xs text-txt-dim p-3">Yükleniyor…</div>
                             ) : !skus || skus.length === 0 ? (
                               <div className="mono text-xs text-txt-dim p-3">Bu mağaza için satış kaydı yok.</div>
                             ) : (
@@ -375,6 +432,7 @@ export default function StoresPage() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }

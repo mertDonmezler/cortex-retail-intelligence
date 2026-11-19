@@ -5,6 +5,15 @@
 :root {
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
   --font-sans: "Space Grotesk", system-ui, sans-serif;
+
+  /* HAREKET TOKENLARI — src/lib/hareket.ts ile aynı kalmalı (test denetler). */
+  --cx-tik: 120ms;
+  --cx-adim: 180ms;
+  --cx-gecis: 180ms;
+  --cx-sonum: 360ms;
+  --cx-esik: 200ms;
+  --cx-soluk: .45;
+  --cx-e: cubic-bezier(.16,1,.3,1);
 }
 
 html, body {
@@ -32,11 +41,35 @@ body {
   background: linear-gradient(180deg, #0f150f, #0c110c);
   border: 1px solid #1f2a1f;
   border-radius: 14px;
-  transition: border-color .2s, box-shadow .2s, transform .2s;
 }
+/* Geçiş yalnız hover'a GİRİŞTE tanımlı: çıkış ve veri kaynaklı her çerçeve
+   değişimi (ör. bayat kanalın amber çerçevesi) ara tondan geçmeden anında olur. */
 .card:hover {
   border-color: rgba(31, 248, 11, 0.4);
   box-shadow: 0 0 28px rgba(31, 248, 11, 0.1);
+  transition: border-color var(--cx-tik) var(--cx-e), box-shadow var(--cx-tik) var(--cx-e);
+}
+/* DEKORATİF KART — parıltısı yok, çünkü tıklanamaz.
+   `.card:hover`in neon parıltısı her kartı "üzerine gelinince canlanan, yani
+   tıklanabilir" gibi gösteriyor; oysa kartların çoğu salt okunur bir kutu.
+
+   ÖLÇÜM (canlı `/_next/static/css/app/layout.css`, CSSOM kural indeksleri):
+   `.card` 336 · `.card:hover` 337 · `.card-flat:hover` 338 · Tailwind'in
+   `hover:` varyantları 359+. Yani derlenmiş çıktıda varyant yardımcıları
+   `.card:hover`den SONRA duruyor; `hover:shadow-none` yazmak da işe yarardı
+   (hesaplanan stille doğrulandı). Buna karşın ayrı sınıf tercih edildi:
+     • niyet okunur — `card-flat` "bu kart dekoratif" der, iki yardımcı sınıfın
+       birlikte taşınmasına gerek kalmaz (biri düşerse sessizce bozulmaz);
+     • `box-shadow: none` gerçekten hiç gölge katmanı bırakmaz, Tailwind'in
+       `shadow-none`u ise üç şeffaf katman + ring değişkenleri basar;
+     • sonuç Tailwind'in kendi üretim sırasına bağlı kalmaz — kural
+       `.card:hover`in hemen ardında, eşit özgüllükte (0,2,0) ve sonra
+       tanımlı olduğu için kademeyi (cascade) kesin kazanır.
+   Kullanım: gerçekten tıklanabilir yüzeylerde `card`, dekoratif olanlarda
+   `card card-flat`. */
+.card-flat:hover {
+  border-color: #1f2a1f;
+  box-shadow: none;
 }
 
 .mono { font-family: var(--font-mono); }
@@ -65,3 +98,105 @@ a { color: inherit; text-decoration: none; }
   80% { transform: translateX(5px); }
 }
 .animate-shake { animation: shake 0.45s cubic-bezier(.36,.07,.19,.97) both; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   HAREKET SİSTEMİ
+   Hareket yalnız iki dürüst sinyal taşır:
+     BEKLEME — bir istek 200 ms'yi aşınca logo beş kanalı sırayla tarar ve o
+               isteğe bağlı eski okuma .45'e söner;
+     HÜKÜM   — karar motoru yanıtı geldiği karede rozet kendi renginde yanar
+               ve 360 ms'de söner.
+   Veri geldiği karede son haliyle basılır. Bayat veri, kullanıcının kendi
+   seçimi ve yeniden render hiçbir hareket üretmez. Tek eğri (expo-out),
+   tavan 360 ms, kademe yok. Boştayken document.getAnimations() boş döner.
+   ───────────────────────────────────────────────────────────────────────── */
+
+button:not(:disabled):active { transform: translateY(1px); }
+
+/* GEÇERSİZ OKUMA — istenen anahtar ekrandaki verinin anahtarından farklı.
+   200 ms eşiğinden sonra 120 ms'de söner; doğru yanıtla aynı karede netleşir.
+   İç içe konmaz; yapışkan ya da opak zeminli öğeye verilmez. */
+.cx-soluk, .cx-soluk-alt { transition: opacity 0s; }
+.cx-soluk[data-bekliyor],
+[data-bekliyor] .cx-soluk-alt {
+  opacity: var(--cx-soluk);
+  transition: opacity var(--cx-tik) linear var(--cx-esik);
+}
+
+/* TIKLAMAN ALINDI — hedef yolda. Eşik boyunca gizli, sonra statik 1 px çizgi.
+   Dolmaz: sahte ilerleme değildir. */
+.cx-hedef { position: relative; }
+.cx-hedef[data-bekliyor]::after {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px; bottom: 2px;
+  height: 1px;
+  background: rgb(31 248 11 / .5);
+  pointer-events: none;
+  animation: cx-gizli var(--cx-esik) steps(1, end);
+}
+@keyframes cx-gizli { from, to { visibility: hidden; } }
+
+/* LOGO TARAMASI — meşgul sayacı <html data-mesgul> koyunca beş uç düğüm,
+   kollarıyla, saat yönünde tek tek yanar: motor beş kanalı sırayla okuyor.
+   Ayrık adım (keyframe durakları), 180 ms × 5 = 900 ms tur. */
+html[data-mesgul] .cx-logo .uc,
+html[data-mesgul] .cx-logo .kol {
+  opacity: .3;
+  animation: cx-tara calc(var(--cx-adim) * 5) linear infinite;
+  animation-delay: calc(var(--n) * var(--cx-adim));
+}
+@keyframes cx-tara {
+  0%, 19.99% { opacity: 1; }
+  20%, 100% { opacity: .3; }
+}
+
+/* LOGO ATEŞİ — hüküm karesinde tarama durur, beş kanal okundu.
+   (data-mesgul kurallarından SONRA durmalı.) */
+html[data-ates] .cx-logo .uc,
+html[data-ates] .cx-logo .kol { animation: none; opacity: 1; }
+html[data-ates] .cx-logo .cx-altigen { animation: cx-ates-a var(--cx-sonum) var(--cx-e); }
+@keyframes cx-ates-a { from { opacity: .9; } }
+html[data-ates] .cx-logo .cx-kollar { animation: cx-ates-k var(--cx-sonum) var(--cx-e); }
+@keyframes cx-ates-k { from { opacity: 1; } }
+
+/* HÜKÜM FOSFORU — #1FF80B bir P1 fosfor yeşilidir: ışın vurduğu yerde yanar
+   ve söner. Renkler satır içi: --cx-hale (renk+99), --cx-dolgu (renk+38).
+   'to' karesi yok: öğenin kendi dinlenme değerine söner. */
+.cx-hukum { animation: cx-fosfor var(--cx-sonum) var(--cx-e); }
+@keyframes cx-fosfor {
+  from { text-shadow: 0 0 10px var(--cx-hale); background-color: var(--cx-dolgu); }
+}
+.cx-yanki { animation: cx-yanki var(--cx-sonum) var(--cx-e); }
+@keyframes cx-yanki { from { text-shadow: 0 0 10px var(--cx-hale); } }
+
+/* PANEL — sağ kenardan gelen katman. Kapanış anlıktır (exit yok). */
+.cx-panel { animation: cx-panel var(--cx-gecis) var(--cx-e); }
+@keyframes cx-panel { from { transform: translateX(100%); } }
+.cx-ortu { animation: cx-ortu var(--cx-tik) linear; }
+@keyframes cx-ortu { from { opacity: 0; } }
+.cx-ortu-renk { animation: cx-ortu-renk var(--cx-tik) linear; }
+@keyframes cx-ortu-renk { from { background-color: transparent; } }
+
+/* KALICILIK İZİ — az önce bakılan satırın vurgusu 360 ms'de söner. */
+.cx-iz { transition: background-color var(--cx-sonum) linear; }
+
+/* HAREKET AZALTMA — işletim sistemi düzeyinde "animasyonları azalt" diyen
+   kullanıcı için tüm süreler sıfırlanır (son durum korunur, geçiş atlanır).
+   .01ms (0 değil) seçildi: `transitionend`/`animationend` olayları hâlâ
+   tetiklenir, yani bu olaylara bağlı mantık kırılmaz. Döngüler tek tura,
+   gecikmeler sıfıra iner (logo meşgulken sabit .3'te durur). Soluk durum ve
+   hedef çizgisi hareket değil DURUMDUR: eşikleri korunur, geçişleri anlıktır. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .cx-soluk[data-bekliyor],
+  [data-bekliyor] .cx-soluk-alt { transition: opacity 0s linear var(--cx-esik) !important; }
+  .cx-hedef[data-bekliyor]::after { animation-duration: var(--cx-esik) !important; }
+}

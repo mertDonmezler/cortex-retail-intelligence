@@ -4,27 +4,45 @@ import { netFactor, CHANNEL_TERMS } from "@/lib/margins";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
+// Vercel varsayılanı 10 sn; tüm weekly_summary taraması matview soğukken bunu
+// zorlayabiliyor. Ağır route'lar 60 kullanıyor, buna 30 yeterli.
+export const maxDuration = 30;
 
 // Nakit takvimi — konsinye/satıştan-ödeme modelinde paranın NE ZAMAN kasaya
 // gireceğini tahmin eder. Model: her haftanın net kazancı (PSF×(1−marj)÷1,2)
-// satış haftasının BİTİŞİ + kanal vadesi (Huppa 30g · DR 90g · Armağan 95g ·
-// Toyzz/Nezih 150g) günü tahsil edilir varsayılır.
+// satış haftasının BİTİŞİ + kanal vadesi (Huppa 30g · DR 90g · Toyzz 90g ·
+// Armağan 95g · Nezih 150g) günü tahsil edilir varsayılır.
 // Varsayımlar (bilinçli sadeleştirme):
 //  • geçmiş vade tarihleri tahsil edilmiş sayılır (takvimde gösterilmez);
 //  • Nezih "faturadan" çalışır — satış haftası yaklaşıklaması kullanılır;
 //  • iade/kesinti öngörülmez (mutabakat Sat-Öde tablosunda ayrıca izlenir).
-const AY = ["", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+const AY = [
+  "",
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+];
 
 export async function GET() {
   try {
-    const { data, error } = await supabase.from("weekly_summary")
+    const { data, error } = await supabase
+      .from("weekly_summary")
       .select("retailer, week_start, week_end, sales_value");
     if (error) throw error;
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const monthKey = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
     type ChanAgg = Record<string, number>;
     const recvByChan: ChanAgg = {};
@@ -56,7 +74,9 @@ export async function GET() {
           month: mk,
           label: `${AY[mo]} ${y}`,
           total: Math.round(v.total),
-          byChannel: Object.fromEntries(Object.entries(v.byChannel).map(([k, n]) => [k, Math.round(n)])),
+          byChannel: Object.fromEntries(
+            Object.entries(v.byChannel).map(([k, n]) => [k, Math.round(n)]),
+          ),
         };
       });
 
@@ -65,7 +85,11 @@ export async function GET() {
       receivable: {
         total: Math.round(recvTotal),
         byChannel: Object.entries(recvByChan)
-          .map(([retailer, amount]) => ({ retailer, amount: Math.round(amount), vadeDays: CHANNEL_TERMS[retailer]?.vadeDays ?? null }))
+          .map(([retailer, amount]) => ({
+            retailer,
+            amount: Math.round(amount),
+            vadeDays: CHANNEL_TERMS[retailer]?.vadeDays ?? null,
+          }))
           .sort((a, b) => b.amount - a.amount),
       },
       months: monthRows,
